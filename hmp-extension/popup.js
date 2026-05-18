@@ -66,11 +66,18 @@ async function getActiveTab() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   activeTab = tab;
   const url = tab?.url || "";
-  const isHmp = /^https:\/\/([^/]+\.)?hmpmall\.co\.kr\//.test(url);
+  const isHmp = /^https?:\/\/([^/]+\.)?hmpmall\.co\.kr\//.test(url);
   setTabState(isHmp ? "HMP 탭" : "HMP 아님", isHmp ? "ok" : "warn");
   if (!isHmp) {
     setStatus("HMP몰 탭으로 이동한 뒤 확장 프로그램을 열어주세요.", "error");
   }
+}
+
+async function ensureContentScript(tabId) {
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    files: ["content.js"],
+  });
 }
 
 async function pasteClipboard() {
@@ -88,13 +95,14 @@ async function pasteClipboard() {
 async function startAutoCart() {
   try {
     await getActiveTab();
-    if (!activeTab?.id || !/^https:\/\/([^/]+\.)?hmpmall\.co\.kr\//.test(activeTab.url || "")) {
+    if (!activeTab?.id || !/^https?:\/\/([^/]+\.)?hmpmall\.co\.kr\//.test(activeTab.url || "")) {
       throw new Error("HMP몰 탭에서만 실행할 수 있습니다.");
     }
 
     const payload = parsePayload();
     renderSummary(payload);
-    setStatus("HMP몰에 자동담기 명령을 보내는 중입니다.");
+    setStatus("HMP몰 화면에 자동담기 패널을 준비하는 중입니다.");
+    await ensureContentScript(activeTab.id);
 
     const response = await chrome.tabs.sendMessage(activeTab.id, {
       type: "HMP_AUTO_CART_START",

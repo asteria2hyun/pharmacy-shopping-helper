@@ -5,6 +5,8 @@
   "description": "약국 쇼핑몰 구매 조합을 계산하고 HMP몰 장바구니 담기 작업으로 연결합니다.",
   "permissions": ["activeTab", "scripting", "storage", "clipboardRead"],
   "host_permissions": [
+    "http://hmpmall.co.kr/*",
+    "http://*.hmpmall.co.kr/*",
     "https://hmpmall.co.kr/*",
     "https://*.hmpmall.co.kr/*"
   ],
@@ -27,6 +29,8 @@
   "content_scripts": [
     {
       "matches": [
+        "http://hmpmall.co.kr/*",
+        "http://*.hmpmall.co.kr/*",
         "https://hmpmall.co.kr/*",
         "https://*.hmpmall.co.kr/*"
       ],
