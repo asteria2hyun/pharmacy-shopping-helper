@@ -1,0 +1,147 @@
+:root {
+  --text: #17202a;
+  --muted: #667085;
+  --line: #dde2ea;
+  --blue: #1663d9;
+  --green: #0f8f5f;
+  --red: #d92d20;
+  --bg: #f6f7f9;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  width: 390px;
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Malgun Gothic", "Segoe UI", Arial, sans-serif;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px 16px;
+  background: white;
+  border-bottom: 1px solid var(--line);
+}
+
+h1 {
+  margin: 0;
+  font-size: 17px;
+}
+
+main {
+  padding: 12px;
+}
+
+.panel,
+.summary {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: white;
+}
+
+label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+textarea {
+  width: 100%;
+  resize: vertical;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 9px;
+  font: inherit;
+  font-size: 12px;
+}
+
+.actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+button {
+  height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: white;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.primary {
+  border-color: var(--blue);
+  background: var(--blue);
+  color: white;
+}
+
+.secondary {
+  background: #edf4ff;
+  border-color: #c8dcff;
+  color: #124da3;
+}
+
+.badge {
+  border-radius: 999px;
+  padding: 5px 9px;
+  background: #eef2f6;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.badge.ok {
+  background: #e6f6ef;
+  color: var(--green);
+}
+
+.badge.warn {
+  background: #fff4e6;
+  color: #b54708;
+}
+
+.status {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.status.ok {
+  color: var(--green);
+  font-weight: 800;
+}
+
+.status.error {
+  color: var(--red);
+  font-weight: 800;
+}
+
+.summary {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 12px;
+}
+
+.warnText {
+  color: var(--red);
+  font-weight: 800;
+  line-height: 1.45;
+}
+
+.hidden {
+  display: none;
+}

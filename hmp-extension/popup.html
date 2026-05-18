@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>약국쇼핑몰 구매도우미</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <h1>약국쇼핑몰 구매도우미</h1>
+    <span id="tabState" class="badge">확인 중</span>
+  </header>
+
+  <main>
+    <section class="panel">
+      <label for="payloadInput">자동담기 데이터</label>
+      <textarea id="payloadInput" rows="10" placeholder="계산기에서 자동담기 데이터 복사 후 여기에 붙여넣기"></textarea>
+      <div class="actions">
+        <button id="pasteBtn" class="secondary">클립보드 붙여넣기</button>
+        <button id="startBtn" class="primary">자동 담기 시작</button>
+      </div>
+      <p id="status" class="status">HMP몰 탭에서 실행해야 합니다.</p>
+    </section>
+
+    <section class="summary hidden" id="summary"></section>
+  </main>
+
+  <script src="popup.js"></script>
+</body>
+</html>

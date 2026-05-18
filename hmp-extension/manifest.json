@@ -1,0 +1,37 @@
+{
+  "manifest_version": 3,
+  "name": "약국쇼핑몰 구매도우미",
+  "version": "0.1.0",
+  "description": "약국 쇼핑몰 구매 조합을 계산하고 HMP몰 장바구니 담기 작업으로 연결합니다.",
+  "permissions": ["activeTab", "scripting", "storage", "clipboardRead"],
+  "host_permissions": [
+    "https://hmpmall.co.kr/*",
+    "https://*.hmpmall.co.kr/*"
+  ],
+  "action": {
+    "default_title": "약국쇼핑몰 구매도우미",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.svg",
+      "32": "icons/icon32.svg",
+      "48": "icons/icon48.svg",
+      "128": "icons/icon128.svg"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.svg",
+    "32": "icons/icon32.svg",
+    "48": "icons/icon48.svg",
+    "128": "icons/icon128.svg"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://hmpmall.co.kr/*",
+        "https://*.hmpmall.co.kr/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
