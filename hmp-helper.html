@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HMP 최저구매 계산기</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>HMP 최저구매 계산기</h1>
+      <p>상품별 업체 가격을 넣고 수량을 조절하면, 업체별 최저 주문금액을 반영해 구매 조합을 계산합니다.</p>
+    </div>
+    <button id="addProductBtn" class="primary">상품 추가</button>
+  </header>
+
+  <main class="layout">
+    <section class="workspace">
+      <div class="capturePanel">
+        <div>
+          <h2>HMP 화면에서 가져오기</h2>
+          <p>HMP몰에서 상품을 검색하고 원하는 상품을 선택한 뒤, 오른쪽 업체 가격표 영역을 복사해서 붙여넣으세요.</p>
+        </div>
+        <div class="captureGrid">
+          <label>
+            기본 최저주문금액
+            <input id="defaultMinOrder" type="number" min="0" step="1000" value="50000">
+          </label>
+          <a class="linkButton" href="https://hmpmall.co.kr" target="_blank" rel="noreferrer">HMP몰 열기</a>
+        </div>
+        <textarea id="hmpCaptureInput" rows="5" placeholder="HMP 가격표를 복사해서 여기에 붙여넣기&#10;예:&#10;대지인팜    1,900    1,236&#10;더파마몰    1,970    198"></textarea>
+        <div class="captureActions">
+          <button id="importHmpBtn" class="primary">붙여넣은 가격표 추가</button>
+          <button id="pasteClipboardBtn" class="secondary">클립보드에서 붙여넣기</button>
+          <span id="importHint" class="importHint">상품명은 추가 후 바로 수정할 수 있습니다.</span>
+        </div>
+      </div>
+      <div class="sectionTitle">
+        <h2>선택 상품</h2>
+        <div class="titleActions">
+          <button id="runTestBtn" class="secondary">테스트 실행</button>
+          <button id="loadSampleBtn" class="ghost">예시 불러오기</button>
+          <button id="clearBtn" class="ghost">초기화</button>
+        </div>
+      </div>
+      <div id="testResult" class="testResult hidden"></div>
+
+      <div class="couponPanel">
+        <div class="sectionTitle compact">
+          <h2>쿠폰</h2>
+          <button id="addCouponBtn" class="secondary">쿠폰 추가</button>
+        </div>
+        <div class="couponHint">마이페이지 쿠폰을 업체명 기준으로 입력하면 추천 금액에서 반영합니다. 업체명은 가격표의 업체명과 같게 적어주세요.</div>
+        <div class="tableWrap">
+          <table>
+            <thead>
+              <tr>
+                <th>업체명</th>
+                <th>할인액</th>
+                <th>사용조건</th>
+                <th>보유수량</th>
+                <th>사용</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="couponRows"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="products" class="products"></div>
+    </section>
+
+    <aside class="resultPanel">
+      <div class="resultHeader">
+        <h2>추천 결과</h2>
+        <span id="statusBadge" class="badge">대기</span>
+      </div>
+
+      <div class="metricGrid">
+        <div>
+          <span>추천 총액</span>
+          <strong id="bestTotal">-</strong>
+        </div>
+        <div>
+          <span>상품 수</span>
+          <strong id="itemCount">0</strong>
+        </div>
+      </div>
+
+      <h3>구매 목록</h3>
+      <div id="bestPlan" class="empty">상품과 업체 가격을 입력하면 결과가 표시됩니다.</div>
+
+      <h3>업체별 합계</h3>
+      <div id="vendorSummary" class="empty">아직 계산할 내용이 없습니다.</div>
+
+      <h3>검토할 대안</h3>
+      <div id="alternatives" class="empty">추천 조합이 생기면 함께 표시됩니다.</div>
+
+      <h3>구매 제안</h3>
+      <div id="suggestions" class="empty">쿠폰 조건이나 더 싼 업체가 보이면 제안합니다.</div>
+
+      <h3>HMP 자동담기</h3>
+      <div class="autoCartBox">
+        <button id="copyAutoCartBtn" class="primary">자동담기 데이터 복사</button>
+        <a class="linkButton compactLink" href="https://hmpmall.co.kr" target="_blank" rel="noreferrer">HMP 열기</a>
+        <div id="autoCartStatus" class="autoCartStatus">복사 후 HMP에서 자동담기 스크립트를 실행하세요.</div>
+      </div>
+    </aside>
+  </main>
+
+  <template id="productTemplate">
+    <article class="product">
+      <div class="productHead">
+        <div class="productFields">
+          <label>
+            검색어
+            <input class="searchInput" type="text" placeholder="예: 바세린">
+          </label>
+          <label>
+            선택 상품명
+            <input class="nameInput" type="text" placeholder="HMP에서 선택한 실제 상품명">
+          </label>
+          <label class="qtyField">
+            수량
+            <input class="qtyInput" type="number" min="1" step="1" value="1">
+          </label>
+        </div>
+        <button class="removeProduct iconBtn" title="상품 삭제">×</button>
+      </div>
+
+      <div class="quoteTools">
+        <button class="addQuoteBtn secondary">업체 가격 추가</button>
+        <button class="pasteToggleBtn ghost">여러 줄 붙여넣기</button>
+      </div>
+
+      <div class="pasteBox hidden">
+        <textarea class="pasteInput" rows="4" placeholder="예:&#10;대지인팜 1900 50000 1236&#10;더파마몰 1970 50000 198"></textarea>
+        <div class="hint">형식: 업체명 단가 최저주문금액 재고. 숫자의 쉼표와 원 표시는 있어도 됩니다.</div>
+        <button class="pasteApplyBtn secondary">가격표 반영</button>
+      </div>
+
+      <div class="tableWrap">
+        <table>
+          <thead>
+            <tr>
+              <th>업체명</th>
+              <th>단가</th>
+              <th>최저주문금액</th>
+              <th>재고</th>
+              <th>사용</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody class="quoteRows"></tbody>
+        </table>
+      </div>
+    </article>
+  </template>
+
+  <template id="quoteTemplate">
+    <tr>
+      <td><input class="vendorInput" type="text" placeholder="업체명"></td>
+      <td><input class="priceInput" type="number" min="0" step="1" placeholder="1900"></td>
+      <td><input class="minInput" type="number" min="0" step="1000" placeholder="50000"></td>
+      <td><input class="stockInput" type="number" min="0" step="1" placeholder="재고"></td>
+      <td><input class="enabledInput" type="checkbox" checked></td>
+      <td><button class="removeQuote iconBtn" title="가격 삭제">×</button></td>
+    </tr>
+  </template>
+
+  <template id="couponTemplate">
+    <tr>
+      <td><input class="couponVendorInput" type="text" placeholder="예: 대지인팜"></td>
+      <td><input class="couponAmountInput" type="number" min="0" step="1000" placeholder="5000"></td>
+      <td><input class="couponMinInput" type="number" min="0" step="1000" placeholder="80000"></td>
+      <td><input class="couponQtyInput" type="number" min="1" step="1" value="1"></td>
+      <td><input class="couponEnabledInput" type="checkbox" checked></td>
+      <td><button class="removeCoupon iconBtn" title="쿠폰 삭제">×</button></td>
+    </tr>
+  </template>
+
+  <script src="./app.js"></script>
+</body>
+</html>

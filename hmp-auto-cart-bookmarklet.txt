@@ -1,0 +1,20 @@
+HMP 장바구니 자동담기 보조 스크립트
+
+중요
+- 이 스크립트는 HMP몰 화면 안에서 실행해야 합니다.
+- 계산기에서 `자동담기 데이터 복사`를 먼저 눌러야 합니다.
+- 최종 결제는 자동으로 하지 않습니다. 장바구니 담기까지만 목표로 합니다.
+- HMP 화면 구조가 바뀌면 일부 버튼을 못 찾을 수 있습니다.
+
+사용 방법
+
+1. 아래 `bookmarklet:` 다음 한 줄 전체를 복사합니다.
+2. 브라우저 즐겨찾기를 하나 만들고 주소(URL)에 붙여넣습니다.
+3. 계산기에서 추천 결과를 만든 뒤 `자동담기 데이터 복사`를 누릅니다.
+4. HMP몰에 로그인합니다.
+5. HMP몰 화면에서 방금 만든 즐겨찾기를 누릅니다.
+6. 스크립트가 자동담기 데이터를 읽고, 검색/상품/업체/수량을 순서대로 처리하려고 시도합니다.
+
+bookmarklet:
+
+javascript:(async()=>{const sleep=(ms)=>new Promise(r=>setTimeout(r,ms));const norm=(s)=>String(s||'').replace(/\s+/g,'').toLowerCase();const visible=(el)=>!!(el&&el.offsetParent!==null);const textOf=(el)=>String(el?.innerText||el?.textContent||'');const clickEl=(el)=>{if(!el)return false;el.scrollIntoView({block:'center',inline:'center'});el.click();return true};const findInput=()=>[...document.querySelectorAll('input[type=text],input:not([type]),textarea')].filter(visible).sort((a,b)=>(b.offsetWidth*b.offsetHeight)-(a.offsetWidth*a.offsetHeight))[0];const setValue=(el,val)=>{el.focus();el.value=val;el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}))};const findButtonByText=(patterns)=>[...document.querySelectorAll('button,a,input[type=button],input[type=submit],img')].find(el=>visible(el)&&patterns.some(p=>norm(textOf(el)+el.value+el.alt+el.title).includes(norm(p))));const search=async(q)=>{const input=findInput();if(!input)throw new Error('검색창을 찾지 못했습니다.');setValue(input,q);const btn=findButtonByText(['검색','search'])||input.closest('form')?.querySelector('button,input[type=submit]');if(btn)clickEl(btn);else input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));await sleep(1800)};const findProduct=async(name)=>{const target=norm(name);let candidates=[...document.querySelectorAll('tr,li,div,a')].filter(visible).filter(el=>norm(textOf(el)).includes(target.slice(0,Math.min(12,target.length))));candidates.sort((a,b)=>textOf(a).length-textOf(b).length);if(candidates[0]){clickEl(candidates[0]);await sleep(1000);return true}return false};const setVendorQtyAndCart=async(vendorName,productName,qty)=>{const v=norm(vendorName);const rows=[...document.querySelectorAll('tr,li,div')].filter(visible).filter(el=>norm(textOf(el)).includes(v));for(const row of rows){const inputs=[...row.querySelectorAll('input')].filter(visible);const qtyInput=inputs.find(i=>/number|text|tel/.test(i.type||'text'));if(qtyInput)setValue(qtyInput,qty);const cart=[...row.querySelectorAll('button,a,input,img')].find(el=>visible(el)&&['장바구니','담기','cart'].some(p=>norm(textOf(el)+el.value+el.alt+el.title).includes(norm(p))));if(cart){clickEl(cart);await sleep(700);return {ok:true,vendor:vendorName,product:productName,qty}}}return {ok:false,vendor:vendorName,product:productName,qty,reason:'업체 행 또는 장바구니 버튼을 찾지 못했습니다.'}};let raw='';try{raw=await navigator.clipboard.readText()}catch(e){raw=prompt('계산기에서 복사한 자동담기 JSON을 붙여넣어 주세요.')||''}let payload;try{payload=JSON.parse(raw)}catch(e){alert('자동담기 데이터를 읽지 못했습니다. 계산기에서 자동담기 데이터 복사를 다시 눌러주세요.');return}if(payload.type!=='hmp-auto-cart-v1'){alert('HMP 자동담기 데이터 형식이 아닙니다.');return}if(!confirm(`HMP 장바구니 자동담기를 시작할까요?\n업체 ${payload.vendors.length}곳 / 품목 ${payload.vendors.reduce((s,v)=>s+v.items.length,0)}개\n결제는 진행하지 않습니다.`))return;const results=[];for(const vendor of payload.vendors){for(const item of vendor.items){try{await search(item.search||item.productName);await findProduct(item.productName);results.push(await setVendorQtyAndCart(vendor.vendor,item.productName,item.qty))}catch(e){results.push({ok:false,vendor:vendor.vendor,product:item.productName,qty:item.qty,reason:e.message})}}}const ok=results.filter(r=>r.ok).length;const fail=results.filter(r=>!r.ok);alert(`자동담기 시도 완료\n성공 ${ok}건 / 실패 ${fail.length}건${fail.length?'\n\n실패:\n'+fail.map(r=>`- ${r.vendor} / ${r.product}: ${r.reason}`).join('\n'):''}`);})();

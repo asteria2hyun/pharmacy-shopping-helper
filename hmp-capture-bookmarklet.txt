@@ -1,0 +1,12 @@
+사용 방법
+
+1. 아래 한 줄 전체를 복사합니다.
+2. 브라우저 즐겨찾기를 하나 만든 뒤, 주소(URL)에 붙여넣습니다.
+3. HMP몰에서 상품을 검색하고 원하는 상품을 선택합니다.
+4. 가격표 영역을 드래그해서 선택한 뒤, 만든 즐겨찾기를 누릅니다.
+5. 선택한 텍스트가 클립보드에 복사됩니다.
+6. `hmp-helper.html`로 돌아와 `클립보드에서 붙여넣기` 또는 Ctrl+V를 사용합니다.
+
+bookmarklet:
+
+javascript:(async()=>{const t=(getSelection&&String(getSelection()).trim())||document.body.innerText;try{await navigator.clipboard.writeText(t);alert('HMP 화면 텍스트를 복사했습니다. 계산기에서 붙여넣어 주세요.');}catch(e){prompt('아래 내용을 복사해서 계산기에 붙여넣어 주세요.',t)}})();
