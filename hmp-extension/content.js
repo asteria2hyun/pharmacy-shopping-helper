@@ -77,6 +77,9 @@
   function clickElement(element) {
     if (!element) return false;
     element.scrollIntoView({ block: "center", inline: "center" });
+    element.dispatchEvent(new MouseEvent("mouseover", { bubbles: true, cancelable: true, view: window }));
+    element.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
+    element.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
     element.click();
     return true;
   }
@@ -88,14 +91,29 @@
     element.dispatchEvent(new Event("change", { bubbles: true }));
   }
 
+  function distanceBetween(a, b) {
+    const ar = a.getBoundingClientRect();
+    const br = b.getBoundingClientRect();
+    const ax = ar.left + ar.width / 2;
+    const ay = ar.top + ar.height / 2;
+    const bx = br.left + br.width / 2;
+    const by = br.top + br.height / 2;
+    return Math.hypot(ax - bx, ay - by);
+  }
+
   function findSearchInput() {
     return [...document.querySelectorAll("input[type=text], input:not([type]), textarea")]
       .filter(isVisible)
+      .filter((input) => {
+        const rect = input.getBoundingClientRect();
+        const text = normalize(`${input.placeholder || ""} ${input.name || ""} ${input.id || ""}`);
+        return rect.width >= 180 || text.includes("search") || text.includes("keyword") || text.includes("상품");
+      })
       .sort((a, b) => (b.offsetWidth * b.offsetHeight) - (a.offsetWidth * a.offsetHeight))[0];
   }
 
   function findClickableByText(patterns, root = document) {
-    return [...root.querySelectorAll("button, a, input[type=button], input[type=submit], img")]
+    return [...root.querySelectorAll("button, a, input[type=button], input[type=submit]")]
       .find((element) => {
         if (!isVisible(element)) return false;
         const text = normalize(`${textOf(element)} ${element.value || ""} ${element.alt || ""} ${element.title || ""}`);
@@ -103,12 +121,57 @@
       });
   }
 
+  function clickableText(element) {
+    return normalize(`${textOf(element)} ${element.value || ""} ${element.alt || ""} ${element.title || ""} ${element.getAttribute("onclick") || ""}`);
+  }
+
+  function findSearchButton(input) {
+    const inputRect = input.getBoundingClientRect();
+    const candidates = [...document.querySelectorAll("button, a, input[type=button], input[type=submit], img")]
+      .filter((element) => {
+        if (!isVisible(element)) return false;
+        const rect = element.getBoundingClientRect();
+        const isNearRight = rect.left >= inputRect.right - 8 && rect.left <= inputRect.right + 90;
+        const isSameLine = Math.abs((rect.top + rect.height / 2) - (inputRect.top + inputRect.height / 2)) <= 28;
+        const text = clickableText(element);
+        return isNearRight && isSameLine && (
+          text.includes("검색") ||
+          text.includes("search") ||
+          text.includes("btnsearch") ||
+          text.includes("goodssearch")
+        );
+      })
+      .sort((a, b) => distanceBetween(a, input) - distanceBetween(b, input));
+    return candidates[0] || null;
+  }
+
+  function findCartButton() {
+    const candidates = [...document.querySelectorAll("button, a, input[type=button], input[type=submit]")]
+      .filter(isVisible)
+      .map((element) => {
+        const text = clickableText(element);
+        return { element, text };
+      })
+      .filter(({ text }) => {
+        if (!text) return false;
+        if (/(보기|이동|요약|미니|최근주문|관심상품|전체보기|전용관|추천|재구매)/.test(text)) return false;
+        return text.includes("장바구니담기") || text.includes("cartinsert") || text.includes("addcart");
+      })
+      .sort((a, b) => {
+        const aExact = a.text.includes("장바구니담기") ? 1 : 0;
+        const bExact = b.text.includes("장바구니담기") ? 1 : 0;
+        if (bExact !== aExact) return bExact - aExact;
+        return textOf(a.element).length - textOf(b.element).length;
+      });
+    return candidates[0]?.element || null;
+  }
+
   async function searchProduct(query) {
     const input = findSearchInput();
     if (!input) throw new Error("검색창을 찾지 못했습니다.");
 
     setValue(input, query);
-    const button = findClickableByText(["검색", "search"]) || input.closest("form")?.querySelector("button, input[type=submit]");
+    const button = findSearchButton(input) || input.closest("form")?.querySelector("button, input[type=submit]");
     if (button) {
       clickElement(button);
     } else {
@@ -125,11 +188,11 @@
       .filter((token) => token.length >= 2)
       .slice(0, 6);
     const shortTarget = target.slice(0, Math.min(18, target.length));
-    const candidates = [...document.querySelectorAll("tr, li, a")]
+    const candidates = [...document.querySelectorAll("tr, li")]
       .filter(isVisible)
       .filter((element) => {
         const rect = element.getBoundingClientRect();
-        if (rect.width > 850 || rect.height > 180) return false;
+        if (rect.width > 900 || rect.height > 190 || rect.height < 18) return false;
         const text = normalize(textOf(element));
         if (!text || /이벤트|바로가기|자세히보기|광고|골프|레슨/.test(textOf(element)) && !target.includes("골프")) return false;
         const tokenHits = tokens.filter((token) => text.includes(token)).length;
@@ -145,37 +208,98 @@
       });
 
     if (!candidates[0]) return false;
-    clickElement(candidates[0]);
+    const link = candidates[0].querySelector("a, button, input[type=button]");
+    clickElement(link || candidates[0]);
     await sleep(1000);
     return true;
   }
 
-  async function setVendorQuantityAndCart(vendorName, productName, qty) {
+  function findVendorRow(vendorName) {
     const targetVendor = normalize(vendorName);
     const rows = [...document.querySelectorAll("tr, li, div")]
       .filter(isVisible)
-      .filter((element) => normalize(textOf(element)).includes(targetVendor));
+      .filter((element) => {
+        const rect = element.getBoundingClientRect();
+        if (rect.width > 900 || rect.height > 180 || rect.height < 12) return false;
+        return normalize(textOf(element)).includes(targetVendor);
+      })
+      .sort((a, b) => {
+        const aHasRadio = a.querySelector("input[type=radio]") ? 1 : 0;
+        const bHasRadio = b.querySelector("input[type=radio]") ? 1 : 0;
+        if (bHasRadio !== aHasRadio) return bHasRadio - aHasRadio;
+        return textOf(a).length - textOf(b).length;
+      });
+    return rows[0] || null;
+  }
 
-    for (const row of rows) {
-      const inputs = [...row.querySelectorAll("input")].filter(isVisible);
-      const qtyInput = inputs.find((input) => /number|text|tel/.test(input.type || "text"));
-      if (qtyInput) setValue(qtyInput, qty);
+  function findQuantityInput(anchor) {
+    const localInput = [...anchor.querySelectorAll("input")]
+      .filter(isVisible)
+      .find((input) => /number|text|tel/.test(input.type || "text") && !input.readOnly && !input.disabled);
+    if (localInput) return localInput;
 
-      const cartButton = findClickableByText(["장바구니", "담기", "cart"], row);
-      if (cartButton) {
-        clickElement(cartButton);
-        await sleep(800);
-        return { ok: true, vendor: vendorName, product: productName, qty };
-      }
+    const searchInput = findSearchInput();
+    const inputs = [...document.querySelectorAll("input")]
+      .filter(isVisible)
+      .filter((input) => input !== searchInput)
+      .filter((input) => /number|text|tel/.test(input.type || "text") && !input.readOnly && !input.disabled)
+      .filter((input) => {
+        const rect = input.getBoundingClientRect();
+        const value = String(input.value || "").trim();
+        return rect.width <= 90 && (!value || /^\d+$/.test(value));
+      })
+      .sort((a, b) => distanceBetween(a, anchor) - distanceBetween(b, anchor));
+    return inputs[0] || null;
+  }
+
+  async function setVendorQuantityAndCart(vendorName, productName, qty) {
+    const row = findVendorRow(vendorName);
+    if (!row) {
+      return {
+        ok: false,
+        vendor: vendorName,
+        product: productName,
+        qty,
+        reason: "업체 행을 찾지 못했습니다.",
+      };
     }
 
-    return {
-      ok: false,
-      vendor: vendorName,
-      product: productName,
-      qty,
-      reason: "업체 행 또는 장바구니 버튼을 찾지 못했습니다.",
-    };
+    const radio = row.querySelector("input[type=radio], input[type=checkbox]");
+    if (radio) {
+      clickElement(radio);
+      await sleep(250);
+    } else {
+      clickElement(row);
+      await sleep(250);
+    }
+
+    const qtyInput = findQuantityInput(row);
+    if (!qtyInput) {
+      return {
+        ok: false,
+        vendor: vendorName,
+        product: productName,
+        qty,
+        reason: "수량 입력칸을 찾지 못했습니다.",
+      };
+    }
+    setValue(qtyInput, qty);
+    await sleep(250);
+
+    const cartButton = findCartButton();
+    if (!cartButton) {
+      return {
+        ok: false,
+        vendor: vendorName,
+        product: productName,
+        qty,
+        reason: "장바구니 담기 버튼을 찾지 못했습니다.",
+      };
+    }
+
+    clickElement(cartButton);
+    await sleep(1000);
+    return { ok: true, vendor: vendorName, product: productName, qty };
   }
 
   async function runAutoCart(payload) {
@@ -220,6 +344,12 @@
   }
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.type === "HMP_AUTO_CART_TEST") {
+      log("HMP 연결 테스트 성공. 이 패널이 보이면 확장프로그램이 HMP 화면과 연결된 상태입니다.", "ok");
+      sendResponse({ ok: true, message: "connected" });
+      return false;
+    }
+
     if (message?.type !== "HMP_AUTO_CART_START") return false;
 
     runAutoCart(message.payload)
