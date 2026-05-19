@@ -16,24 +16,14 @@
 </header>
 <main class="layout">
   <section class="workspace">
-    <div class="capturePanel">
-      <div>
-        <h2>HMP 화면에서 가져오기</h2>
-        <p>HMP몰에서 상품을 검색하고 원하는 상품을 선택한 뒤, 오른쪽 업체 가격표 영역을 복사해서 붙여넣으세요.</p>
-      </div>
-      <div class="captureGrid">
-        <label>
-          기본 최저주문금액
-          <input id="defaultMinOrder" type="number" min="0" step="1000" value="50000">
-        </label>
-        <a class="linkButton" href="https://hmpmall.co.kr" target="_blank" rel="noreferrer">HMP몰 열기</a>
-      </div>
-      <textarea id="hmpCaptureInput" rows="5" placeholder="HMP 가격표를 복사해서 여기에 붙여넣기&#10;예:&#10;대지인팜 1,900 1,236&#10;더파마몰 1,970 198"></textarea>
-      <div class="captureActions">
-        <button id="importHmpBtn" class="primary">붙여넣은 가격표 추가</button>
-        <button id="pasteClipboardBtn" class="secondary">클립보드에서 붙여넣기</button>
-        <span id="importHint" class="importHint">상품명은 추가 후 바로 수정할 수 있습니다.</span>
-      </div>
+    <!-- 확장프로그램에서 상품 캡처 후 자동 추가됨 -->
+    <!-- hmpCaptureInput, importHmpBtn은 확장프로그램 통신용으로 hidden 유지 -->
+    <div style="display:none">
+      <input id="defaultMinOrder" type="number" value="50000">
+      <textarea id="hmpCaptureInput"></textarea>
+      <button id="importHmpBtn">가격표 추가</button>
+      <button id="pasteClipboardBtn">붙여넣기</button>
+      <span id="importHint"></span>
     </div>
     <div class="sectionTitle">
       <h2>선택 상품</h2>
