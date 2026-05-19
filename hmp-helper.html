@@ -273,6 +273,21 @@
     }
   });
 
+  // app.js가 초기화 시 빈 상품 1개를 자동 추가 → 즉시 제거
+  // app.js는 동기적으로 실행되므로 이 스크립트 실행 시점엔 이미 빈 상품이 추가된 상태
+  function removeEmptyProducts() {
+    document.querySelectorAll('.product').forEach(card => {
+      const name = card.querySelector('.nameInput')?.value?.trim();
+      const quotes = card.querySelectorAll('.quoteRows tr');
+      if (!name && quotes.length === 0) {
+        card.querySelector('.removeProduct')?.click();
+      }
+    });
+  }
+  // 즉시 실행 + 혹시 모를 타이밍 문제 대비 한 번 더
+  removeEmptyProducts();
+  setTimeout(removeEmptyProducts, 100);
+
   // 상품 체크박스 - 체크 해제 시 해당 상품의 모든 업체 비활성화
   document.getElementById('products').addEventListener('change', e => {
     const cb = e.target;
