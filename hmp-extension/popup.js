@@ -1,5 +1,6 @@
 const tabStateEl = document.querySelector("#tabState");
 const payloadInputEl = document.querySelector("#payloadInput");
+const captureProductBtn = document.querySelector("#captureProductBtn");
 const pasteBtn = document.querySelector("#pasteBtn");
 const startBtn = document.querySelector("#startBtn");
 const testPanelBtn = document.querySelector("#testPanelBtn");
@@ -143,6 +144,32 @@ async function testConnection() {
   }
 }
 
+async function captureProduct() {
+  try {
+    await getActiveTab();
+    if (!activeTab?.id || !/^https?:\/\/([^/]+\.)?hmpmall\.co\.kr\//.test(activeTab.url || "")) {
+      throw new Error("HMP몰 탭에서만 상품을 가져올 수 있습니다.");
+    }
+
+    setStatus("현재 HMP 선택상품을 읽는 중입니다.");
+    await ensureContentScript(activeTab.id);
+    const response = await chrome.tabs.sendMessage(activeTab.id, {
+      type: "HMP_CAPTURE_PRODUCT",
+    });
+
+    if (!response?.ok || !response.product) {
+      throw new Error(response?.message || "선택상품을 읽지 못했습니다.");
+    }
+
+    const text = JSON.stringify(response.product, null, 2);
+    await navigator.clipboard.writeText(text);
+    setStatus(`상품 데이터를 복사했습니다. 업체 ${response.product.quotes.length}곳. 계산기 붙여넣기 영역에 넣어주세요.`, "ok");
+  } catch (error) {
+    setStatus(error.message || "상품 가져오기에 실패했습니다.", "error");
+  }
+}
+
+captureProductBtn?.addEventListener("click", captureProduct);
 pasteBtn.addEventListener("click", pasteClipboard);
 startBtn.addEventListener("click", startAutoCart);
 testPanelBtn?.addEventListener("click", testConnection);

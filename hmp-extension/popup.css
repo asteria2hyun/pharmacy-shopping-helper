@@ -47,6 +47,11 @@ main {
   background: white;
 }
 
+.panel + .panel,
+.panel + .summary {
+  margin-top: 10px;
+}
+
 label {
   display: block;
   margin-bottom: 6px;
