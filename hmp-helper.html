@@ -259,11 +259,8 @@
 </template>
 
 <script>
-  // 확장프로그램 환경에서는 app.js 로드 전에 localStorage를 클리어
-  // → restoreState()가 빈 배열 반환 → 이전 상태 복원 안 됨
-  if (typeof chrome !== 'undefined' && chrome.runtime?.id) {
-    try { localStorage.removeItem('hmp-helper-state-v1'); } catch(e) {}
-  }
+  // 계산기는 매번 새로 캡처해서 쓰므로 이전 상태 복원 안 함
+  try { localStorage.removeItem('hmp-helper-state-v1'); } catch(e) {}
 </script>
 <script src="./app.js"></script>
 <script>
