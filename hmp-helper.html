@@ -112,6 +112,9 @@
     <div class="sectionTitle">
       <h2>📦 주문 상품 목록</h2>
       <div class="titleActions">
+        <!-- app.js가 참조하므로 숨김으로 DOM 유지 -->
+        <button id="runTestBtn"   class="secondary" style="display:none">테스트</button>
+        <button id="loadSampleBtn" class="ghost"   style="display:none">예시</button>
         <button id="clearBtn" class="ghost">초기화</button>
       </div>
     </div>
@@ -226,10 +229,6 @@
       window.open('https://hmpmall.co.kr', '_blank');
     }
   });
-
-  // 테스트/샘플 버튼 제거 (없어도 app.js 정상 동작)
-  document.getElementById('runTestBtn')?.remove();
-  document.getElementById('loadSampleBtn')?.remove();
 </script>
 </body>
 </html>
