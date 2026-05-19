@@ -1091,7 +1091,8 @@ function clearAll() {
   couponRowsEl.innerHTML = "";
   suggestionUndoSnapshot = null;
   updateUndoSuggestionButton();
-  addProduct();
+  if (shouldShowInitialProduct()) addProduct();
+  else calculate();
 }
 
 async function pasteFromClipboard() {
@@ -1186,6 +1187,11 @@ addCouponBtn.addEventListener("click", () => {
   calculate();
 });
 
+function shouldShowInitialProduct() {
+  return !addProductBtn || getComputedStyle(addProductBtn).display !== "none";
+}
+
 if (!restoreState()) {
-  addProduct();
+  if (shouldShowInitialProduct()) addProduct();
+  else calculate();
 }
