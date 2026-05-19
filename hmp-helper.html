@@ -66,8 +66,20 @@
   /* 헤더 설명 텍스트 변경 */
   .topbar p { display: none; }
 
-  /* 상품 목록 상단 */
-  .sectionTitle h2 { font-size: 14px; }
+  /* 상품 체크박스 */
+  .productEnabledCb {
+    width: 18px; height: 18px;
+    flex-shrink: 0;
+    cursor: pointer;
+    accent-color: #1a56db;
+  }
+  .product.disabled {
+    opacity: 0.45;
+  }
+  .product.disabled .nameInput,
+  .product.disabled .qtyInput {
+    color: #9ca3af;
+  }
 
   /* 빈 상태 안내 */
   #products:empty::after {
@@ -157,6 +169,8 @@
 <template id="productTemplate">
   <article class="product">
     <div class="productHead">
+      <!-- 상품 활성화 체크박스 -->
+      <input type="checkbox" class="productEnabledCb" checked title="구매 목록에 포함">
       <div class="productFields">
         <!-- 검색어 (숨김) -->
         <label style="display:none">
@@ -228,6 +242,27 @@
     } else {
       window.open('https://hmpmall.co.kr', '_blank');
     }
+  });
+
+  // 상품 체크박스 - 체크 해제 시 해당 상품의 모든 업체 비활성화
+  document.getElementById('products').addEventListener('change', e => {
+    const cb = e.target;
+    if (!cb.classList.contains('productEnabledCb')) return;
+
+    const product = cb.closest('.product');
+    if (!product) return;
+
+    const enabled = cb.checked;
+    product.classList.toggle('disabled', !enabled);
+
+    // 해당 상품의 모든 업체 enabledInput 체크/언체크
+    product.querySelectorAll('.enabledInput').forEach(input => {
+      input.checked = enabled;
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+
+    // 계산 트리거
+    product.dispatchEvent(new Event('change', { bubbles: true }));
   });
 </script>
 </body>
