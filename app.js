@@ -30,6 +30,7 @@ let currentDisplayPlan = null;
 let selectedVendors = new Set();
 let currentRankedPlans = [];
 let suggestionUndoSnapshot = null;
+let undoDoneTimer = null;
 
 const formatter = new Intl.NumberFormat("ko-KR");
 
@@ -676,7 +677,14 @@ function readQuantitySnapshot() {
 }
 
 function restoreSuggestionSnapshot() {
-  if (!suggestionUndoSnapshot) return;
+  if (!suggestionUndoSnapshot) {
+    updateUndoSuggestionButton("되돌릴 내용 없음", "notice");
+    window.clearTimeout(undoDoneTimer);
+    undoDoneTimer = window.setTimeout(() => {
+      updateUndoSuggestionButton();
+    }, 1200);
+    return;
+  }
 
   suggestionUndoSnapshot.forEach((item) => {
     const product = productsEl.querySelector(`.product[data-id="${CSS.escape(item.id)}"]`);
@@ -684,13 +692,27 @@ function restoreSuggestionSnapshot() {
   });
 
   suggestionUndoSnapshot = null;
-  updateUndoSuggestionButton();
+  updateUndoSuggestionButton("완료", "done");
   calculate();
+
+  window.clearTimeout(undoDoneTimer);
+  undoDoneTimer = window.setTimeout(() => {
+    updateUndoSuggestionButton();
+  }, 1200);
 }
 
-function updateUndoSuggestionButton() {
+function updateUndoSuggestionButton(label = "", mode = "") {
   if (!undoSuggestionBtn) return;
-  undoSuggestionBtn.disabled = !suggestionUndoSnapshot;
+  if (label) {
+    undoSuggestionBtn.textContent = label;
+    undoSuggestionBtn.classList.toggle("done", mode === "done");
+    undoSuggestionBtn.classList.toggle("notice", mode === "notice");
+    return;
+  }
+
+  undoSuggestionBtn.textContent = "원상태로";
+  undoSuggestionBtn.classList.toggle("done", false);
+  undoSuggestionBtn.classList.toggle("notice", false);
 }
 
 function getPlanKey(plan) {

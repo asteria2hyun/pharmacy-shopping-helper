@@ -507,9 +507,17 @@ button.altItem {
   font-size: 12px;
 }
 
-.smallButton:disabled {
-  cursor: not-allowed;
-  opacity: .45;
+.smallButton.done {
+  border-color: #b7e4cd;
+  background: #e6f6ef;
+  color: var(--green);
+  opacity: 1;
+}
+
+.smallButton.notice {
+  border-color: #fed7aa;
+  background: #fff7ed;
+  color: #b45309;
 }
 
 .suggestionRows {
