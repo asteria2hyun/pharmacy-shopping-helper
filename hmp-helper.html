@@ -281,28 +281,28 @@
   const productsEl = document.getElementById('products');
   const observer = new MutationObserver(() => {
     productsEl.querySelectorAll('.product').forEach(card => {
-      const name = card.querySelector('.nameInput')?.value?.trim();
+      // nameInput value가 비어있고 업체도 없으면 초기 빈 상품
+      const nameVal = card.querySelector('.nameInput')?.value || '';
       const quotes = card.querySelectorAll('.quoteRows tr');
-      if (!name && quotes.length === 0 && !card.dataset.keepEmpty) {
+      if (!nameVal.trim() && quotes.length === 0) {
         card.querySelector('.removeProduct')?.click();
       }
     });
   });
   observer.observe(productsEl, { childList: true });
 
-  // 이미 있는 빈 상품 즉시 제거
   function removeEmptyProducts() {
     productsEl.querySelectorAll('.product').forEach(card => {
-      const name = card.querySelector('.nameInput')?.value?.trim();
+      const nameVal = card.querySelector('.nameInput')?.value || '';
       const quotes = card.querySelectorAll('.quoteRows tr');
-      if (!name && quotes.length === 0) {
+      if (!nameVal.trim() && quotes.length === 0) {
         card.querySelector('.removeProduct')?.click();
       }
     });
   }
   removeEmptyProducts();
   setTimeout(removeEmptyProducts, 200);
-  setTimeout(removeEmptyProducts, 500);
+  setTimeout(removeEmptyProducts, 600);
 
   // 상품 체크박스 - 체크 해제 시 해당 상품의 모든 업체 비활성화
   document.getElementById('products').addEventListener('change', e => {
