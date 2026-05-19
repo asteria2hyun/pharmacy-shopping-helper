@@ -281,10 +281,11 @@
   // restoreState()가 false면 빈 상품이 생김 → localStorage를 비워서 restoreState()가 빈 배열 반환하게
   // 대신 addProductBtn을 숨겨서 사용자가 직접 추가 못하게만 함
   // 더 확실한 방법: MutationObserver로 빈 상품 즉시 제거
-  const productsEl = document.getElementById('products');
+  // productsEl은 app.js에서 이미 선언됨 → 재사용
+  var __hmpProductsEl = document.getElementById('products');
   function removeEmptyProducts() {
     let removed = false;
-    productsEl.querySelectorAll('.product').forEach(card => {
+    __hmpProductsEl.querySelectorAll('.product').forEach(card => {
       const nameVal = card.querySelector('.nameInput')?.value || '';
       const quotes = card.querySelectorAll('.quoteRows tr');
       if (!nameVal.trim() && quotes.length === 0) {
@@ -295,16 +296,16 @@
     return removed;
   }
 
-  const observer = new MutationObserver(() => {
+  var __hmpObserver = new MutationObserver(() => {
     if (removeEmptyProducts() && typeof calculate === 'function') calculate();
   });
-  observer.observe(productsEl, { childList: true, subtree: false });
+  __hmpObserver.observe(__hmpProductsEl, { childList: true, subtree: false });
 
   // 즉시 + 타이밍 여유 두고 반복 실행
   removeEmptyProducts();
   setTimeout(() => { if(removeEmptyProducts() && typeof calculate === 'function') calculate(); }, 200);
   setTimeout(() => { if(removeEmptyProducts() && typeof calculate === 'function') calculate(); }, 500);
-  setTimeout(() => { if(removeEmptyProducts() && typeof calculate === 'function') calculate(); }, 1000);
+  setTimeout(() => { if(removeEmptyProducts() && typeof calculate === 'function') calculate(); }, 1200);
 
   // calculator.js에서 호출 가능하도록 window에 노출
   window.__hmpRemoveEmpty = removeEmptyProducts;
