@@ -1,555 +1,371 @@
-(() => {
-  if (window.__hmpAutoCartContentLoaded) return;
-  window.__hmpAutoCartContentLoaded = true;
+// content.js - HMP몰 탭에서 실행
+if (window.__hmpContentLoaded) {
+  // 이미 로드됨 - 무시
+} else {
+window.__hmpContentLoaded = true;
 
-  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-  const normalize = (value) => String(value || "").replace(/\s+/g, "").toLowerCase();
-  const textOf = (element) => String(element?.innerText || element?.textContent || "");
-  const isVisible = (element) => Boolean(element && element.offsetParent !== null);
-  let isRunning = false;
+const norm = s => String(s || '').replace(/[\s,원]/g, '').toLowerCase();
+const visible = el => !!(el && el.offsetParent !== null && el.offsetWidth > 0);
 
-  function looksLikePriceRow(value) {
-    const text = String(value || "").trim();
-    const numberMatches = text.match(/\d[\d,]*/g) || [];
-    const hasProductUnit = /(ml|mg|g|kg|cm|mm|매|팩|포|개|입|정|캡슐|병|통|ea|set|겹)/i.test(text);
-    if (hasProductUnit) return false;
-    if (numberMatches.length < 2 || text.length >= 36) return false;
+function getSearchQuery() {
+  return document.querySelector('input[name="search"]')?.value?.trim() || '';
+}
 
-    const lettersOnly = text.replace(/[\d\s,./()*+\-~원]/g, "");
-    const hasPriceLikeNumber = numberMatches.some((match) => Number(String(match).replace(/[^\d.-]/g, "")) >= 100);
-    return hasPriceLikeNumber && lettersOnly.length > 0 && lettersOnly.length <= 12;
+function extractProductNameFromHref(href) {
+  const m = String(href || '').match(/searchSubList\s*\(\s*['"]?[^,'"]+['"]?\s*,\s*['"]?[^,'"]+['"]?\s*,\s*['"]([^'"]+)['"]/);
+  return m ? m[1].trim() : '';
+}
+
+function isProductNameCompatible(productName, searchQuery) {
+  const p = norm(productName);
+  const q = norm(searchQuery);
+  if (!p || !q) return !!p;
+  if (p.includes(q) || q.includes(p)) return true;
+
+  const tokens = String(searchQuery || '')
+    .split(/[\s/(){}\[\],.+*-]+/)
+    .map(norm)
+    .filter(t => t.length >= 2);
+  return tokens.length > 0 && tokens.some(t => p.includes(t));
+}
+
+function getHighlightedResultProductName() {
+  const rows = [...document.querySelectorAll('#mainListTable tr[id^="mainList"], tr[id^="mainList"]')];
+  for (const row of rows) {
+    const bg = window.getComputedStyle(row).backgroundColor;
+    const selected = bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'rgb(255, 255, 255)';
+    if (!selected) continue;
+
+    const link = row.querySelector('a[href*="searchSubList"], a[href*="searchTwoStep"], a');
+    const fromHref = extractProductNameFromHref(link?.getAttribute('href') || '');
+    const fromText = link?.innerText?.trim() || '';
+    return fromHref || fromText;
   }
+  return '';
+}
 
-  function parseNumber(value) {
-    const number = Number(String(value ?? "").replace(/[^\d.-]/g, ""));
-    return Number.isFinite(number) ? number : 0;
+function getFirstResultProductName() {
+  const links = [...document.querySelectorAll(
+    '#mainListTable a[href*="searchSubList"], #mainListTable a[href*="searchTwoStep"], ' +
+    'tr[id^="mainList"] a[href*="searchSubList"], tr[id^="mainList"] a[href*="searchTwoStep"], ' +
+    'a[href*="searchSubList"], a[href*="searchTwoStep"]'
+  )].filter(visible);
+
+  for (const link of links) {
+    const fromHref = extractProductNameFromHref(link.getAttribute('href') || '');
+    const fromText = link.innerText.trim();
+    const name = fromHref || fromText;
+    if (name && name.length >= 2) return name;
   }
+  return '';
+}
 
-  function validatePayload(payload) {
-    const badItems = payload.vendors
-      .flatMap((vendor) => vendor.items)
-      .filter((item) => looksLikePriceRow(item.productName));
-    if (badItems.length) {
-      throw new Error("상품명이 업체 가격행처럼 보입니다. 계산기에서 선택 상품명을 실제 HMP 상품명으로 수정해 주세요.");
-    }
-  }
+// ─── searchSubList 후킹 ───────────────────────────────────────
+// 상품 클릭 시 searchSubList(rowIdx, goodsNo, goodsName, unit) 호출됨
+// 이 함수를 가로채서 선택된 상품명을 저장
 
-  function ensurePanel() {
-    let panel = document.querySelector("#hmp-auto-cart-panel");
-    if (panel) return panel;
-
-    panel = document.createElement("div");
-    panel.id = "hmp-auto-cart-panel";
-    panel.style.cssText = [
-      "position:fixed",
-      "right:24px",
-      "top:130px",
-      "z-index:2147483647",
-      "width:360px",
-      "max-height:520px",
-      "overflow:auto",
-      "border:1px solid #1663d9",
-      "border-radius:8px",
-      "box-shadow:0 12px 30px rgba(0,0,0,.18)",
-      "background:#fff",
-      "font-family:Malgun Gothic,Segoe UI,Arial,sans-serif",
-      "font-size:12px",
-      "color:#17202a",
-    ].join(";");
-    panel.innerHTML = `
-      <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:#1663d9;color:white;font-weight:800;">
-        <span>약국쇼핑몰 자동담기</span>
-        <button id="hmp-auto-cart-close" style="border:0;background:transparent;color:white;font-size:18px;cursor:pointer;">×</button>
-      </div>
-      <div id="hmp-auto-cart-log" style="display:grid;gap:6px;padding:10px 12px;"></div>
-    `;
-    document.body.appendChild(panel);
-    panel.querySelector("#hmp-auto-cart-close").addEventListener("click", () => panel.remove());
-    return panel;
-  }
-
-  function log(message, type = "") {
-    const panel = ensurePanel();
-    const logBox = panel.querySelector("#hmp-auto-cart-log");
-    const row = document.createElement("div");
-    const color = type === "ok" ? "#0f8f5f" : type === "error" ? "#d92d20" : "#667085";
-    row.style.cssText = `line-height:1.45;color:${color};border-bottom:1px solid #eef2f6;padding-bottom:5px;`;
-    row.textContent = message;
-    logBox.appendChild(row);
-    row.scrollIntoView({ block: "nearest" });
-  }
-
-  function clickElement(element) {
-    if (!element) return false;
-    element.scrollIntoView({ block: "center", inline: "center" });
-    element.focus?.();
-    element.dispatchEvent(new MouseEvent("mouseover", { bubbles: true, cancelable: true, view: window }));
-    element.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
-    element.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
-    element.click();
-    return true;
-  }
-
-  function setValue(element, value) {
-    element.focus();
-    element.select?.();
-    const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
-    if (nativeSetter) nativeSetter.call(element, String(value));
-    else element.value = String(value);
-    element.dispatchEvent(new Event("input", { bubbles: true }));
-    element.dispatchEvent(new Event("change", { bubbles: true }));
-    element.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: String(value).slice(-1) || "0" }));
-  }
-
-  function callInlineHandler(element) {
-    const onclick = element?.getAttribute?.("onclick");
-    if (!onclick) return false;
-    try {
-      Function(onclick).call(element);
+function hookSearchSubList() {
+  const tryHook = () => {
+    // searchTwoStepList 객체 방식
+    if (window.searchTwoStepList?.searchSubList && !window.__hmpHooked1) {
+      const orig = window.searchTwoStepList.searchSubList.bind(window.searchTwoStepList);
+      window.searchTwoStepList.searchSubList = function(...args) {
+        window.__hmpSelectedProductName = args[2] || '';
+        window.__hmpSelectedSearchQuery = getSearchQuery();
+        console.log('[HMP] 상품 선택됨:', window.__hmpSelectedProductName);
+        return orig(...args);
+      };
+      window.__hmpHooked1 = true;
       return true;
-    } catch (error) {
-      log(`직접 실행 실패: ${error.message}`, "error");
-      return false;
     }
-  }
-
-  function distanceBetween(a, b) {
-    const ar = a.getBoundingClientRect();
-    const br = b.getBoundingClientRect();
-    const ax = ar.left + ar.width / 2;
-    const ay = ar.top + ar.height / 2;
-    const bx = br.left + br.width / 2;
-    const by = br.top + br.height / 2;
-    return Math.hypot(ax - bx, ay - by);
-  }
-
-  function findSearchInput() {
-    return [...document.querySelectorAll("input[type=text], input:not([type]), textarea")]
-      .filter(isVisible)
-      .filter((input) => {
-        const rect = input.getBoundingClientRect();
-        const text = normalize(`${input.placeholder || ""} ${input.name || ""} ${input.id || ""}`);
-        return rect.width >= 180 || text.includes("search") || text.includes("keyword") || text.includes("상품");
-      })
-      .sort((a, b) => (b.offsetWidth * b.offsetHeight) - (a.offsetWidth * a.offsetHeight))[0];
-  }
-
-  function findClickableByText(patterns, root = document) {
-    return [...root.querySelectorAll("button, a, input[type=button], input[type=submit]")]
-      .find((element) => {
-        if (!isVisible(element)) return false;
-        const text = normalize(`${textOf(element)} ${element.value || ""} ${element.alt || ""} ${element.title || ""}`);
-        return patterns.some((pattern) => text.includes(normalize(pattern)));
-      });
-  }
-
-  function clickableText(element) {
-    return normalize(`${textOf(element)} ${element.value || ""} ${element.alt || ""} ${element.title || ""} ${element.getAttribute("onclick") || ""}`);
-  }
-
-  function findSearchButton(input) {
-    const inputRect = input.getBoundingClientRect();
-    const candidates = [...document.querySelectorAll("button, a, input[type=button], input[type=submit], img")]
-      .filter((element) => {
-        if (!isVisible(element)) return false;
-        const rect = element.getBoundingClientRect();
-        const isNearRight = rect.left >= inputRect.right - 8 && rect.left <= inputRect.right + 90;
-        const isSameLine = Math.abs((rect.top + rect.height / 2) - (inputRect.top + inputRect.height / 2)) <= 28;
-        const text = clickableText(element);
-        return isNearRight && isSameLine && (
-          text.includes("검색") ||
-          text.includes("search") ||
-          text.includes("btnsearch") ||
-          text.includes("goodssearch")
-        );
-      })
-      .sort((a, b) => distanceBetween(a, input) - distanceBetween(b, input));
-    return candidates[0] || null;
-  }
-
-  function findOrderPanel(vendorName = "") {
-    const vendor = normalize(vendorName);
-    const allCandidates = [...document.querySelectorAll("div, section, table, tbody")]
-      .filter(isVisible)
-      .map((element) => {
-        const rect = element.getBoundingClientRect();
-        const text = normalize(textOf(element));
-        return { element, rect, text, area: rect.width * rect.height };
-      })
-      .filter(({ rect, text }) => {
-        if (rect.width < 220 || rect.width > 430 || rect.height < 180) return false;
-        if (rect.left < window.innerWidth * 0.45) return false;
-        const hasOrderWords = text.includes("선택상품") || text.includes("업체명") || text.includes("공급가") || text.includes("장바구니담기");
-        const hasVendor = !vendor || text.includes(vendor);
-        return hasOrderWords && hasVendor;
-      });
-
-    const candidates = allCandidates.length ? allCandidates : [...document.querySelectorAll("div, section, table, tbody")]
-      .filter(isVisible)
-      .map((element) => {
-        const rect = element.getBoundingClientRect();
-        const text = normalize(textOf(element));
-        return { element, rect, text, area: rect.width * rect.height };
-      })
-      .filter(({ rect, text }) => {
-        if (rect.width < 220 || rect.width > 430 || rect.height < 180) return false;
-        if (rect.left < window.innerWidth * 0.45) return false;
-        return text.includes("선택상품") || text.includes("업체명") || text.includes("공급가") || text.includes("장바구니담기");
-      });
-
-    candidates
-      .sort((a, b) => {
-        const aScore = (a.text.includes("장바구니담기") ? 0 : 1) + (a.text.includes("업체명") ? 0 : 1);
-        const bScore = (b.text.includes("장바구니담기") ? 0 : 1) + (b.text.includes("업체명") ? 0 : 1);
-        if (aScore !== bScore) return aScore - bScore;
-        return a.area - b.area;
-      });
-    return candidates[0]?.element || document;
-  }
-
-  function getCurrentSearchText() {
-    return String(findSearchInput()?.value || "").trim();
-  }
-
-  function compactLines(element) {
-    return textOf(element)
-      .split(/\r?\n/)
-      .map((line) => line.replace(/\s+/g, " ").trim())
-      .filter(Boolean);
-  }
-
-  function guessSelectedProductName(panel) {
-    const lines = compactLines(panel);
-    const search = normalize(getCurrentSearchText());
-    const candidates = lines.filter((line) => {
-      if (line.length < 8 || line.length > 90) return false;
-      if (/선택상품|업체명|공급가|재고|수량|장바구니|관심상품|배송|주문마감|최근주문|가격우선순/.test(line)) return false;
-      if (looksLikePriceRow(line)) return false;
-      if (/^\d/.test(line)) return false;
-      return /[가-힣A-Za-z]/.test(line);
-    });
-
-    if (search) {
-      const searched = candidates.find((line) => normalize(line).includes(search));
-      if (searched) return searched;
-    }
-
-    return candidates.sort((a, b) => b.length - a.length)[0] || "";
-  }
-
-  function parseQuoteRows(panel) {
-    const rows = [...panel.querySelectorAll("tr, li, div")]
-      .filter(isVisible)
-      .map((row) => {
-        const text = textOf(row).replace(/\s+/g, " ").trim();
-        const normalized = normalize(text);
-        const rect = row.getBoundingClientRect();
-        return { row, text, normalized, rect };
-      })
-      .filter(({ text, normalized, rect }) => {
-        if (!text || rect.width > 430 || rect.height > 120 || rect.height < 12) return false;
-        if (/업체명|공급가|재고|수량|장바구니|주문마감|배송/.test(text)) return false;
-        return /\d[\d,]*\s*원?/.test(text) && /[가-힣A-Za-z]/.test(text) && !normalized.includes("부족금액");
-      });
-
-    const quotes = [];
-    rows.forEach(({ text, row }) => {
-      const checked = row.querySelector("input[type=radio], input[type=checkbox]");
-      const matches = [...text.matchAll(/\d[\d,]*/g)];
-      if (!matches.length) return;
-
-      const firstNumber = matches[0];
-      const vendor = text.slice(0, firstNumber.index).replace(/[ㆍ·:|-]+$/g, "").trim();
-      if (!vendor || vendor.length > 24 || /^\d/.test(vendor)) return;
-
-      const numbers = matches.map((match) => parseNumber(match[0])).filter((number) => number > 0);
-      const price = numbers.find((number) => number >= 10);
-      if (!price) return;
-
-      const stock = numbers.find((number, index) => index > 0 && number !== price) ?? "";
-      quotes.push({
-        vendor,
-        price,
-        minOrder: 50000,
-        stock,
-        enabled: true,
-        selected: Boolean(checked?.checked),
-      });
-    });
-
-    const seen = new Set();
-    return quotes.filter((quote) => {
-      const key = `${quote.vendor}:${quote.price}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
+    // 전역 함수 방식
+    if (typeof window.searchSubList === 'function' && !window.__hmpHooked2) {
+      const orig = window.searchSubList;
+      window.searchSubList = function(...args) {
+        window.__hmpSelectedProductName = args[2] || '';
+        window.__hmpSelectedSearchQuery = getSearchQuery();
+        console.log('[HMP] 상품 선택됨:', window.__hmpSelectedProductName);
+        return orig.call(this, ...args);
+      };
+      window.__hmpHooked2 = true;
       return true;
-    });
-  }
-
-  function captureCurrentProduct() {
-    const panel = findOrderPanel();
-    const productName = guessSelectedProductName(panel);
-    const quotes = parseQuoteRows(panel);
-    if (!productName || !quotes.length) {
-      throw new Error("선택상품명 또는 업체 가격표를 찾지 못했습니다. HMP에서 상품을 선택한 뒤 다시 시도해 주세요.");
     }
+    return false;
+  };
+
+  if (!tryHook()) {
+    let tries = 0;
+    const iv = setInterval(() => { if (tryHook() || tries++ > 30) clearInterval(iv); }, 300);
+  }
+}
+
+// a[href*="searchSubList"] 클릭 이벤트로도 상품명 캡처 (백업)
+document.addEventListener('click', e => {
+  const link = e.target.closest('a[href*="searchSubList"], a[href*="searchTwoStep"]');
+  if (!link) return;
+  const href = link.getAttribute('href') || '';
+  // searchSubList('5','12345','상품명','1EA') 형태에서 3번째 인자 추출
+  const m = href.match(/searchSubList\s*\(\s*['"]?[^,'"]+['"]?\s*,\s*['"]?[^,'"]+['"]?\s*,\s*['"]([^'"]+)['"]/);
+  if (m) {
+    window.__hmpSelectedProductName = m[1];
+    window.__hmpSelectedSearchQuery = getSearchQuery();
+    console.log('[HMP] 클릭으로 상품 선택됨:', m[1]);
+  } else {
+    // 링크 텍스트로 fallback
+    const txt = link.innerText.trim();
+    if (txt.length > 3) {
+      window.__hmpSelectedProductName = txt;
+      window.__hmpSelectedSearchQuery = getSearchQuery();
+    }
+  }
+}, true);
+
+hookSearchSubList();
+
+// ─── 상품 캡처 ───────────────────────────────────────────────
+
+function captureCurrentProduct() {
+  try {
+    const searchQuery = getSearchQuery();
+
+    // 1. 후킹/클릭으로 저장된 상품명. 단, 새 검색어와 맞지 않으면 예전 상품명으로 보고 버림.
+    let productName = '';
+    const cachedName = window.__hmpSelectedProductName || '';
+    const cachedQuery = window.__hmpSelectedSearchQuery || '';
+    if (cachedName && (!searchQuery || cachedQuery === searchQuery || isProductNameCompatible(cachedName, searchQuery))) {
+      productName = cachedName;
+    }
+
+    // 2. mainListTable 강조행에서 읽기
+    const highlightedName = getHighlightedResultProductName();
+    if (!productName && isProductNameCompatible(highlightedName, searchQuery)) {
+      productName = highlightedName;
+    }
+
+    // 3. 상품을 클릭하지 않은 경우 첫 번째 검색 결과에서 읽기
+    const firstResultName = getFirstResultProductName();
+    if (!productName && isProductNameCompatible(firstResultName, searchQuery)) {
+      productName = firstResultName;
+    }
+
+    // 4. script var productName fallback
+    if (!productName) {
+      for (const s of [...document.querySelectorAll('script:not([src])')].reverse()) {
+        const m = s.textContent.match(/var\s+productName\s*=\s*['"]([^'"]{3,})['"]/);
+        const scriptName = m && !m[1].includes('undefined') ? m[1].trim() : '';
+        if (isProductNameCompatible(scriptName, searchQuery)) { productName = scriptName; break; }
+      }
+    }
+
+    const radios = [...document.querySelectorAll('input[name="subInfoRadio"]')].filter(visible);
+    if (radios.length === 0) {
+      return { ok: false, error: '업체 가격표를 찾지 못했습니다.\nHMP몰에서 상품을 선택한 후 다시 시도하세요.' };
+    }
+
+    const vendors = [];
+    for (const radio of radios) {
+      const row = radio.closest('tr');
+      if (!row) continue;
+      const tds = [...row.querySelectorAll('td')].map(td => td.innerText.trim());
+      // 구조: [0]=라디오(빈칸) [1]=업체명 [2]=일반가 [3]=할인가(없으면"") [4]=재고
+      const vendorName = tds[1] || '';
+      const price = parseInt((tds[2] || '').replace(/[^0-9]/g, '')) || 0;
+      const discountPrice = parseInt((tds[3] || '').replace(/[^0-9]/g, '')) || 0;
+      const stock = parseInt((tds[4] || '').replace(/[^0-9]/g, '')) || 0;
+
+      if (!vendorName || price === 0) continue;
+      vendors.push({
+        vendor: vendorName,
+        price: discountPrice > 0 ? discountPrice : price,
+        originalPrice: price,
+        stock: stock === 0 ? '' : stock,
+        radioValue: radio.value
+      });
+    }
+
+    if (vendors.length === 0) return { ok: false, error: '업체 정보를 파싱하지 못했습니다.' };
 
     return {
-      type: "hmp-product-capture-v1",
-      createdAt: new Date().toISOString(),
-      source: location.href,
-      search: getCurrentSearchText(),
-      name: productName,
-      qty: 1,
-      quotes,
+      ok: true,
+      data: {
+        productName: productName || searchQuery,
+        searchQuery,
+        vendors,
+        capturedAt: new Date().toISOString()
+      }
     };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+}
+
+// ─── 쿠폰 캡처 ────────────────────────────────────────────────
+
+function guessVendorFromCouponName(couponName) {
+  const name = couponName
+    .replace(/\[.*?\]/g, '').replace(/[♥♡★☆◆■▶]/g, '')
+    .replace(/쿠폰|할인|쇼핑몰|전용|이상|원|구매|적립|포인트|사용|가능|품목/g, '')
+    .replace(/\s+/g, ' ').trim();
+  const words = name.match(/[가-힣]{2,}/g) || [];
+  return words.find(w => /팜$|몰$|샵$|마켓$|스토어$|약$/.test(w))
+    || words.find(w => w.length >= 3) || words[0] || '';
+}
+
+async function captureAllCoupons() {
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  if (!location.href.includes('couponList')) {
+    location.href = 'https://hmpmall.co.kr/mypage/couponList.do';
+    return { ok: false, error: '쿠폰 페이지로 이동합니다. 잠시 후 다시 시도하세요.' };
   }
 
-  function findCartButton(root = document) {
-    const candidates = [...root.querySelectorAll("button, a, input[type=button], input[type=submit]")]
-      .filter(isVisible)
-      .map((element) => {
-        const text = clickableText(element);
-        return { element, text };
-      })
-      .filter(({ text }) => {
-        if (!text) return false;
-        if (/(보기|이동|요약|미니|최근주문|관심상품|전체보기|전용관|추천|재구매)/.test(text)) return false;
-        return text.includes("장바구니담기") || text.includes("cartinsert") || text.includes("addcart");
-      })
-      .sort((a, b) => {
-        const aExact = a.text.includes("장바구니담기") ? 1 : 0;
-        const bExact = b.text.includes("장바구니담기") ? 1 : 0;
-        if (bExact !== aExact) return bExact - aExact;
-        return textOf(a.element).length - textOf(b.element).length;
+  const allCoupons = [];
+
+  function parseCouponsOnPage() {
+    const rows = [...document.querySelectorAll('table tr')].filter(tr => tr.querySelectorAll('td').length >= 5);
+    const coupons = [];
+    for (const row of rows) {
+      const tds = [...row.querySelectorAll('td')].map(td => td.innerText.trim().replace(/\s+/g, ' '));
+      if (tds.length < 5) continue;
+      const couponName = tds[1] || '';
+      const discount = parseInt(tds[2].replace(/[^0-9]/g, '')) || 0;
+      if (discount === 0) continue;
+      const minMatch = tds[3].match(/(\d[\d,]+)\s*원\s*이상/);
+      const minOrder = minMatch ? parseInt(minMatch[1].replace(/,/g, '')) : 0;
+      const qty = parseInt(tds[6]?.replace(/[^0-9]/g, '') || tds[5]?.replace(/[^0-9]/g, '') || '1') || 1;
+      coupons.push({
+        couponName: couponName.replace(/사용가능품목\s*:/g, '').trim(),
+        vendor: guessVendorFromCouponName(couponName),
+        discount, minOrder, qty
       });
-    return candidates[0]?.element || null;
-  }
-
-  function findCartButtonNearQuantity(qtyInput, root = document) {
-    const buttons = [...root.querySelectorAll("button, a, input[type=button], input[type=submit]")]
-      .filter(isVisible)
-      .map((element) => ({ element, text: clickableText(element) }))
-      .filter(({ text }) => {
-        if (!text) return false;
-        if (/(보기|이동|요약|미니|최근주문|관심상품|전체보기|전용관|추천|재구매)/.test(text)) return false;
-        return text.includes("장바구니담기") || text.includes("cartinsert") || text.includes("addcart");
-      })
-      .sort((a, b) => distanceBetween(a.element, qtyInput) - distanceBetween(b.element, qtyInput));
-    return buttons[0]?.element || null;
-  }
-
-  async function searchProduct(query) {
-    const input = findSearchInput();
-    if (!input) throw new Error("검색창을 찾지 못했습니다.");
-
-    setValue(input, query);
-    const button = findSearchButton(input) || input.closest("form")?.querySelector("button, input[type=submit]");
-    if (button) {
-      clickElement(button);
-    } else {
-      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
     }
-    await sleep(1800);
+    return coupons;
   }
 
-  async function selectProduct(productName) {
-    const target = normalize(productName);
-    const tokens = target
-      .split(/[\[\]\(\)\/,+·ㆍ\-_ ]+/)
-      .map(normalize)
-      .filter((token) => token.length >= 2)
-      .slice(0, 6);
-    const shortTarget = target.slice(0, Math.min(18, target.length));
-    const candidates = [...document.querySelectorAll("tr, li")]
-      .filter(isVisible)
-      .filter((element) => {
-        const rect = element.getBoundingClientRect();
-        if (rect.width > 900 || rect.height > 190 || rect.height < 18) return false;
-        const text = normalize(textOf(element));
-        if (!text || /이벤트|바로가기|자세히보기|광고|골프|레슨/.test(textOf(element)) && !target.includes("골프")) return false;
-        const tokenHits = tokens.filter((token) => text.includes(token)).length;
-        return text.includes(shortTarget) || tokenHits >= Math.min(2, tokens.length);
-      })
-      .sort((a, b) => {
-        const aText = normalize(textOf(a));
-        const bText = normalize(textOf(b));
-        const aHits = tokens.filter((token) => aText.includes(token)).length;
-        const bHits = tokens.filter((token) => bText.includes(token)).length;
-        if (bHits !== aHits) return bHits - aHits;
-        return textOf(a).length - textOf(b).length;
-      });
+  function getTotalPages() {
+    const pageLinks = [...document.querySelectorAll('.pagination a, .paging a, [class*="page"] a')];
+    const nums = pageLinks.map(a => parseInt(a.innerText.trim())).filter(n => !isNaN(n) && n > 0);
+    return nums.length > 0 ? Math.max(...nums) : 1;
+  }
 
-    if (!candidates[0]) return false;
-    const link = candidates[0].querySelector("a, button, input[type=button]");
-    clickElement(link || candidates[0]);
-    await sleep(1000);
+  allCoupons.push(...parseCouponsOnPage());
+  const totalPages = getTotalPages();
+
+  for (let page = 2; page <= totalPages; page++) {
+    const pageLinks = [...document.querySelectorAll('.pagination a, .paging a, [class*="page"] a')];
+    const targetLink = pageLinks.find(a => a.innerText.trim() === String(page));
+    if (!targetLink) break;
+    targetLink.click();
+    await sleep(1500);
+    allCoupons.push(...parseCouponsOnPage());
+  }
+
+  const seen = new Set();
+  const unique = allCoupons.filter(c => {
+    const key = `${c.couponName}-${c.discount}-${c.minOrder}`;
+    if (seen.has(key)) return false;
+    seen.add(key); return true;
+  });
+
+  return { ok: true, coupons: unique, totalPages };
+}
+
+// ─── 자동담기 ─────────────────────────────────────────────────
+
+async function runAutoCart(payload, onProgress) {
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const setVal = (el, val) => {
+    el.focus();
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+    setter.call(el, val);
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+
+  const results = [];
+  const totalItems = payload.vendors.reduce((s, v) => s + v.items.length, 0);
+  let doneCount = 0;
+
+  for (const vendor of payload.vendors) {
+    for (const item of vendor.items) {
+      const r = { vendor: vendor.vendor, product: item.productName, qty: item.qty, ok: false, reason: '' };
+      try {
+        onProgress(doneCount, totalItems, `검색 중: ${item.productName}`);
+        const searchInput = document.querySelector('input[name="search"]');
+        if (!searchInput) throw new Error('검색창을 찾지 못했습니다.');
+        setVal(searchInput, item.search || item.productName);
+        const submitBtn = searchInput.form?.querySelector('button[type=submit], input[type=submit]');
+        if (submitBtn) submitBtn.click();
+        else searchInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }));
+        await sleep(2500);
+
+        onProgress(doneCount, totalItems, `상품 선택 중: ${item.productName}`);
+        const norm_name = norm(item.productName);
+        const links = [...document.querySelectorAll('a')].filter(visible);
+        let bestLink = null, bestScore = 0;
+        for (const a of links) {
+          const t = norm(a.innerText || a.textContent || '');
+          if (t.length < 3 || t.length > 120) continue;
+          let score = t === norm_name ? 1000 : t.includes(norm_name) ? 500 : norm_name.split('').filter(c => t.includes(c)).length * 2;
+          if (score > bestScore) { bestScore = score; bestLink = a; }
+        }
+        if (!bestLink) throw new Error('상품 링크를 찾지 못했습니다.');
+        bestLink.scrollIntoView({ block: 'center' });
+        bestLink.click();
+        await sleep(2000);
+
+        onProgress(doneCount, totalItems, `업체 선택 중: ${vendor.vendor}`);
+        const norm_vendor = norm(vendor.vendor);
+        const radios = [...document.querySelectorAll('input[name="subInfoRadio"]')].filter(visible);
+        let matched = null;
+        for (const radio of radios) {
+          const row = radio.closest('tr');
+          if (norm(row?.innerText || '').includes(norm_vendor)) { matched = radio; break; }
+        }
+        if (!matched) throw new Error(`업체 "${vendor.vendor}"를 찾지 못했습니다.`);
+        matched.scrollIntoView({ block: 'center' });
+        matched.click();
+        await sleep(600);
+
+        const qtyInput = document.querySelector('input[name="requestQuantity"]');
+        if (!qtyInput) throw new Error('수량 입력란을 찾지 못했습니다.');
+        setVal(qtyInput, String(item.qty));
+        await sleep(300);
+
+        onProgress(doneCount, totalItems, `장바구니 담는 중: ${item.productName}`);
+        const cartBtn = document.querySelector('button.cartBtn');
+        if (!cartBtn || !visible(cartBtn)) throw new Error('장바구니 버튼을 찾지 못했습니다.');
+        cartBtn.scrollIntoView({ block: 'center' });
+        cartBtn.click();
+        await sleep(1200);
+        r.ok = true;
+      } catch (e) { r.reason = e.message; }
+
+      results.push(r);
+      doneCount++;
+      onProgress(doneCount, totalItems, doneCount < totalItems ? '다음 상품...' : '완료!');
+      await sleep(400);
+    }
+  }
+  return results;
+}
+
+// ─── 메시지 수신 ──────────────────────────────────────────────
+
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.type === 'PING') { sendResponse({ ok: true, url: location.href }); return true; }
+  if (msg.type === 'CAPTURE') { sendResponse(captureCurrentProduct()); return true; }
+  if (msg.type === 'CAPTURE_COUPONS') {
+    captureAllCoupons().then(sendResponse).catch(e => sendResponse({ ok: false, error: e.message }));
     return true;
   }
-
-  function findVendorRow(vendorName, root = document) {
-    const targetVendor = normalize(vendorName);
-    const rows = [...root.querySelectorAll("tr, li, div")]
-      .filter(isVisible)
-      .filter((element) => {
-        const rect = element.getBoundingClientRect();
-        if (rect.width > 430 || rect.height > 180 || rect.height < 12) return false;
-        return normalize(textOf(element)).includes(targetVendor);
-      })
-      .sort((a, b) => {
-        const aHasRadio = a.querySelector("input[type=radio]") ? 1 : 0;
-        const bHasRadio = b.querySelector("input[type=radio]") ? 1 : 0;
-        if (bHasRadio !== aHasRadio) return bHasRadio - aHasRadio;
-        return textOf(a).length - textOf(b).length;
-      });
-    return rows[0] || null;
+  if (msg.type === 'AUTO_CART') {
+    runAutoCart(msg.payload, (done, total, label) => {
+      chrome.runtime.sendMessage({ type: 'CART_PROGRESS', done, total, label });
+    }).then(results => sendResponse({ ok: true, results }))
+      .catch(e => sendResponse({ ok: false, error: e.message }));
+    return true;
   }
+  return false;
+});
 
-  function findQuantityInput(anchor, root = document) {
-    const localInput = [...anchor.querySelectorAll("input")]
-      .filter(isVisible)
-      .find((input) => /number|text|tel/.test(input.type || "text") && !input.readOnly && !input.disabled);
-    if (localInput) return localInput;
-
-    const searchInput = findSearchInput();
-    const inputs = [...root.querySelectorAll("input")]
-      .filter(isVisible)
-      .filter((input) => input !== searchInput)
-      .filter((input) => /number|text|tel/.test(input.type || "text") && !input.readOnly && !input.disabled)
-      .filter((input) => {
-        const rect = input.getBoundingClientRect();
-        const value = String(input.value || "").trim();
-        return rect.width <= 95 && rect.height <= 38 && (!value || /^\d+$/.test(value));
-      })
-      .sort((a, b) => distanceBetween(a, anchor) - distanceBetween(b, anchor));
-    return inputs[0] || null;
-  }
-
-  async function setVendorQuantityAndCart(vendorName, productName, qty) {
-    const panel = findOrderPanel(vendorName);
-    log(`주문패널 확인: ${panel === document ? "전체 화면 기준" : "오른쪽 선택상품 패널 기준"}`);
-
-    const row = findVendorRow(vendorName, panel);
-    if (!row) {
-      return {
-        ok: false,
-        vendor: vendorName,
-        product: productName,
-        qty,
-        reason: "업체 행을 찾지 못했습니다.",
-      };
-    }
-
-    const radio = row.querySelector("input[type=radio], input[type=checkbox]");
-    if (radio) {
-      clickElement(radio);
-      await sleep(250);
-    } else {
-      clickElement(row);
-      await sleep(250);
-    }
-
-    const qtyInput = findQuantityInput(row, panel);
-    if (!qtyInput) {
-      return {
-        ok: false,
-        vendor: vendorName,
-        product: productName,
-        qty,
-        reason: "수량 입력칸을 찾지 못했습니다.",
-      };
-    }
-    setValue(qtyInput, qty);
-    log(`수량 입력: ${vendorName} ${qty}개 (현재 칸 값: ${qtyInput.value})`);
-    await sleep(500);
-
-    const cartButton = findCartButtonNearQuantity(qtyInput, panel) || findCartButton(panel);
-    if (!cartButton) {
-      return {
-        ok: false,
-        vendor: vendorName,
-        product: productName,
-        qty,
-        reason: "장바구니 담기 버튼을 찾지 못했습니다.",
-      };
-    }
-
-    log(`장바구니 담기 버튼 클릭: ${textOf(cartButton) || cartButton.value || cartButton.title || cartButton.getAttribute("onclick") || "버튼"}`);
-    clickElement(cartButton);
-    callInlineHandler(cartButton);
-    await sleep(1300);
-    return { ok: true, vendor: vendorName, product: productName, qty };
-  }
-
-  async function runAutoCart(payload) {
-    if (isRunning) {
-      log("이미 자동담기가 진행 중입니다.", "error");
-      return [];
-    }
-
-    validatePayload(payload);
-    isRunning = true;
-    const results = [];
-    const itemCount = payload.vendors.reduce((sum, vendor) => sum + vendor.items.length, 0);
-    log(`자동담기 시작: 업체 ${payload.vendors.length}곳, 품목 ${itemCount}개`);
-
-    for (const vendor of payload.vendors) {
-      for (const item of vendor.items) {
-        try {
-          log(`검색: ${item.search || item.productName}`);
-          await searchProduct(item.search || item.productName);
-          await selectProduct(item.productName);
-          const result = await setVendorQuantityAndCart(vendor.vendor, item.productName, item.qty);
-          results.push(result);
-          log(`${result.ok ? "성공" : "실패"}: ${vendor.vendor} / ${item.productName} ${item.qty}개${result.reason ? ` (${result.reason})` : ""}`, result.ok ? "ok" : "error");
-        } catch (error) {
-          const result = {
-            ok: false,
-            vendor: vendor.vendor,
-            product: item.productName,
-            qty: item.qty,
-            reason: error.message,
-          };
-          results.push(result);
-          log(`실패: ${vendor.vendor} / ${item.productName} (${error.message})`, "error");
-        }
-      }
-    }
-
-    const okCount = results.filter((result) => result.ok).length;
-    log(`완료: 성공 ${okCount}건, 실패 ${results.length - okCount}건`, results.length === okCount ? "ok" : "error");
-    isRunning = false;
-    return results;
-  }
-
-  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (message?.type === "HMP_AUTO_CART_TEST") {
-      log("HMP 연결 테스트 성공. 이 패널이 보이면 확장프로그램이 HMP 화면과 연결된 상태입니다.", "ok");
-      sendResponse({ ok: true, message: "connected" });
-      return false;
-    }
-
-    if (message?.type === "HMP_CAPTURE_PRODUCT") {
-      try {
-        const product = captureCurrentProduct();
-        log(`상품 가져오기 완료: ${product.name} / 업체 ${product.quotes.length}곳`, "ok");
-        sendResponse({ ok: true, product });
-      } catch (error) {
-        log(`상품 가져오기 실패: ${error.message}`, "error");
-        sendResponse({ ok: false, message: error.message });
-      }
-      return false;
-    }
-
-    if (message?.type !== "HMP_AUTO_CART_START") return false;
-
-    runAutoCart(message.payload)
-      .catch((error) => {
-        isRunning = false;
-        log(`자동담기 중단: ${error.message}`, "error");
-      });
-
-    sendResponse({ ok: true, message: "started" });
-    return false;
-  });
-})();
+} // end of __hmpContentLoaded guard
