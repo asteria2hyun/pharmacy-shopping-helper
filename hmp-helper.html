@@ -5,19 +5,96 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>HMP 최저구매 계산기</title>
 <link rel="stylesheet" href="./styles.css">
+<style>
+  /* 확장프로그램 전용 UI 오버라이드 */
+  .product .quoteTools,
+  .product .pasteBox,
+  .product .tableWrap,
+  .product .productFields label:first-child /* 검색어 라벨 */ {
+    display: none !important;
+  }
+
+  /* 상품 카드 - 심플하게 */
+  .product {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 8px;
+  }
+
+  .productHead {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .productFields {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+    flex-wrap: wrap;
+  }
+
+  /* 상품명 라벨 - 넓게 */
+  .productFields label:nth-child(2) {
+    flex: 1;
+    min-width: 160px;
+  }
+  .productFields label:nth-child(2) input {
+    width: 100%;
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  /* 수량 라벨 - 좁게 */
+  .productFields .qtyField {
+    width: 80px;
+    flex-shrink: 0;
+  }
+  .productFields .qtyField input {
+    width: 100%;
+    text-align: center;
+    font-size: 16px;
+    font-weight: 700;
+  }
+
+  /* 쿠폰 패널 숨김 - 확장프로그램에서 추가 */
+  .couponPanel { display: none !important; }
+
+  /* 헤더 설명 텍스트 변경 */
+  .topbar p { display: none; }
+
+  /* 상품 목록 상단 */
+  .sectionTitle h2 { font-size: 14px; }
+
+  /* 빈 상태 안내 */
+  #products:empty::after {
+    content: '확장프로그램에서 HMP몰 상품을 캡처하면 여기에 추가됩니다.';
+    display: block;
+    padding: 32px 16px;
+    text-align: center;
+    color: #9ca3af;
+    font-size: 13px;
+    background: #f9fafb;
+    border-radius: 10px;
+    border: 1px dashed #e5e7eb;
+  }
+</style>
 </head>
 <body>
 <header class="topbar">
   <div>
     <h1>HMP 최저구매 계산기</h1>
-    <p>상품별 업체 가격을 넣고 수량을 조절하면, 업체별 최저 주문금액을 반영해 구매 조합을 계산합니다.</p>
   </div>
-  <button id="addProductBtn" class="primary">상품 추가</button>
+  <button id="addProductBtn" class="primary" style="display:none">상품 추가</button>
 </header>
+
 <main class="layout">
   <section class="workspace">
-    <!-- 확장프로그램에서 상품 캡처 후 자동 추가됨 -->
-    <!-- hmpCaptureInput, importHmpBtn은 확장프로그램 통신용으로 hidden 유지 -->
+
+    <!-- 확장프로그램 통신용 (숨김) -->
     <div style="display:none">
       <input id="defaultMinOrder" type="number" value="50000">
       <textarea id="hmpCaptureInput"></textarea>
@@ -25,33 +102,23 @@
       <button id="pasteClipboardBtn">붙여넣기</button>
       <span id="importHint"></span>
     </div>
+
+    <!-- 쿠폰 (숨김 - 확장프로그램에서 추가) -->
+    <div style="display:none">
+      <button id="addCouponBtn">쿠폰 추가</button>
+      <tbody id="couponRows"></tbody>
+    </div>
+
     <div class="sectionTitle">
-      <h2>선택 상품</h2>
+      <h2>📦 주문 상품 목록</h2>
       <div class="titleActions">
-        <button id="runTestBtn" class="secondary">테스트 실행</button>
-        <button id="loadSampleBtn" class="ghost">예시 불러오기</button>
         <button id="clearBtn" class="ghost">초기화</button>
       </div>
     </div>
+
     <div id="testResult" class="testResult hidden"></div>
-    <div class="couponPanel">
-      <div class="sectionTitle compact">
-        <h2>쿠폰</h2>
-        <button id="addCouponBtn" class="secondary">쿠폰 추가</button>
-      </div>
-      <div class="couponHint">마이페이지 쿠폰을 업체명 기준으로 입력하면 추천 금액에서 반영합니다. 업체명은 가격표의 업체명과 같게 적어주세요.</div>
-      <div class="tableWrap">
-        <table>
-          <thead>
-            <tr>
-              <th>업체명</th><th>할인액</th><th>사용조건</th><th>보유수량</th><th>사용</th><th></th>
-            </tr>
-          </thead>
-          <tbody id="couponRows"></tbody>
-        </table>
-      </div>
-    </div>
     <div id="products" class="products"></div>
+
   </section>
 
   <aside class="resultPanel">
@@ -64,7 +131,7 @@
       <div><span>상품 수</span><strong id="itemCount">0</strong></div>
     </div>
     <h3>구매 목록</h3>
-    <div id="bestPlan" class="empty">상품과 업체 가격을 입력하면 결과가 표시됩니다.</div>
+    <div id="bestPlan" class="empty">확장프로그램에서 상품을 캡처하면 결과가 표시됩니다.</div>
     <h3>업체별 합계</h3>
     <div id="vendorSummary" class="empty">아직 계산할 내용이 없습니다.</div>
     <h3>검토할 대안</h3>
@@ -78,31 +145,41 @@
     <div class="autoCartBox">
       <button id="copyAutoCartBtn" class="primary">자동담기 데이터 복사</button>
       <button id="openHmpBtn" class="linkButton compactLink" type="button">HMP 열기</button>
-      <div id="autoCartStatus" class="autoCartStatus">복사 후 HMP에서 자동담기 스크립트를 실행하세요.</div>
+      <div id="autoCartStatus" class="autoCartStatus">확장프로그램에서 자동담기를 시작하세요.</div>
     </div>
   </aside>
 </main>
 
+<!-- 상품 템플릿 - 수량만 보이게 -->
 <template id="productTemplate">
   <article class="product">
     <div class="productHead">
       <div class="productFields">
-        <label>검색어<input class="searchInput" type="text" placeholder="예: 바세린"></label>
-        <label>선택 상품명<input class="nameInput" type="text" placeholder="HMP에서 선택한 실제 상품명"></label>
-        <label class="qtyField">수량<input class="qtyInput" type="number" min="1" step="1" value="1"></label>
+        <!-- 검색어 (숨김) -->
+        <label style="display:none">
+          검색어<input class="searchInput" type="text">
+        </label>
+        <!-- 상품명 -->
+        <label>
+          <input class="nameInput" type="text" placeholder="상품명">
+        </label>
+        <!-- 수량 -->
+        <label class="qtyField">
+          수량<input class="qtyInput" type="number" min="1" step="1" value="1">
+        </label>
       </div>
       <button class="removeProduct iconBtn" title="상품 삭제">×</button>
     </div>
-    <div class="quoteTools">
+    <!-- 업체 가격 도구 (숨김 - 확장프로그램이 채워줌) -->
+    <div class="quoteTools" style="display:none">
       <button class="addQuoteBtn secondary">업체 가격 추가</button>
       <button class="pasteToggleBtn ghost">여러 줄 붙여넣기</button>
     </div>
-    <div class="pasteBox hidden">
-      <textarea class="pasteInput" rows="4" placeholder="예:&#10;대지인팜 1900 50000 1236&#10;더파마몰 1970 50000 198"></textarea>
-      <div class="hint">형식: 업체명 단가 최저주문금액 재고. 숫자의 쉼표와 원 표시는 있어도 됩니다.</div>
+    <div class="pasteBox hidden" style="display:none">
+      <textarea class="pasteInput" rows="4"></textarea>
       <button class="pasteApplyBtn secondary">가격표 반영</button>
     </div>
-    <div class="tableWrap">
+    <div class="tableWrap" style="display:none">
       <table>
         <thead>
           <tr><th>업체명</th><th>단가</th><th>최저주문금액</th><th>재고</th><th>사용</th><th></th></tr>
@@ -137,23 +214,22 @@
 
 <script src="./app.js"></script>
 <script>
-  // HMP 열기 버튼 - 기존 탭 있으면 이동, 없으면 새 탭
+  // HMP 열기 - 기존 탭 있으면 이동
   document.getElementById('openHmpBtn').addEventListener('click', () => {
-    // 확장프로그램 환경: chrome.tabs API 사용 가능하면 기존 탭으로
     if (typeof chrome !== 'undefined' && chrome.tabs) {
       chrome.tabs.query({}, tabs => {
         const hmpTab = tabs.find(t => t.url?.includes('hmpmall.co.kr'));
-        if (hmpTab) {
-          chrome.tabs.update(hmpTab.id, { active: true });
-        } else {
-          chrome.tabs.create({ url: 'https://hmpmall.co.kr' });
-        }
+        if (hmpTab) chrome.tabs.update(hmpTab.id, { active: true });
+        else chrome.tabs.create({ url: 'https://hmpmall.co.kr' });
       });
     } else {
-      // 일반 브라우저: 새 탭
       window.open('https://hmpmall.co.kr', '_blank');
     }
   });
+
+  // 테스트/샘플 버튼 제거 (없어도 app.js 정상 동작)
+  document.getElementById('runTestBtn')?.remove();
+  document.getElementById('loadSampleBtn')?.remove();
 </script>
 </body>
 </html>
