@@ -258,6 +258,13 @@
   </tr>
 </template>
 
+<script>
+  // 확장프로그램 환경에서는 app.js 로드 전에 localStorage를 클리어
+  // → restoreState()가 빈 배열 반환 → 이전 상태 복원 안 됨
+  if (typeof chrome !== 'undefined' && chrome.runtime?.id) {
+    try { localStorage.removeItem('hmp-helper-state-v1'); } catch(e) {}
+  }
+</script>
 <script src="./app.js"></script>
 <script>
   // HMP 열기 - 기존 탭 있으면 이동
@@ -273,12 +280,7 @@
     }
   });
 
-  // 확장프로그램 모드에서는 localStorage 이전 상태를 복원하지 않음
-  // (매번 새로 캡처해서 추가하는 방식이므로)
-  if (typeof chrome !== 'undefined' && chrome.runtime?.id) {
-    try { localStorage.removeItem('hmp-helper-state-v1'); } catch(e) {}
-  }
-  // app.js 마지막줄: if (!restoreState()) { addProduct(); }
+  // app.js의 초기 addProduct() 호출 막기
   // restoreState()가 false면 빈 상품이 생김 → localStorage를 비워서 restoreState()가 빈 배열 반환하게
   // 대신 addProductBtn을 숨겨서 사용자가 직접 추가 못하게만 함
   // 더 확실한 방법: MutationObserver로 빈 상품 즉시 제거
