@@ -86,9 +86,12 @@
 
   function setValue(element, value) {
     element.focus();
-    element.value = value;
+    const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+    if (nativeSetter) nativeSetter.call(element, String(value));
+    else element.value = String(value);
     element.dispatchEvent(new Event("input", { bubbles: true }));
     element.dispatchEvent(new Event("change", { bubbles: true }));
+    element.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: String(value).slice(-1) || "0" }));
   }
 
   function distanceBetween(a, b) {
@@ -145,8 +148,48 @@
     return candidates[0] || null;
   }
 
-  function findCartButton() {
-    const candidates = [...document.querySelectorAll("button, a, input[type=button], input[type=submit]")]
+  function findOrderPanel(vendorName = "") {
+    const vendor = normalize(vendorName);
+    const allCandidates = [...document.querySelectorAll("div, section, table, tbody")]
+      .filter(isVisible)
+      .map((element) => {
+        const rect = element.getBoundingClientRect();
+        const text = normalize(textOf(element));
+        return { element, rect, text, area: rect.width * rect.height };
+      })
+      .filter(({ rect, text }) => {
+        if (rect.width < 220 || rect.width > 430 || rect.height < 180) return false;
+        if (rect.left < window.innerWidth * 0.45) return false;
+        const hasOrderWords = text.includes("선택상품") || text.includes("업체명") || text.includes("공급가") || text.includes("장바구니담기");
+        const hasVendor = !vendor || text.includes(vendor);
+        return hasOrderWords && hasVendor;
+      });
+
+    const candidates = allCandidates.length ? allCandidates : [...document.querySelectorAll("div, section, table, tbody")]
+      .filter(isVisible)
+      .map((element) => {
+        const rect = element.getBoundingClientRect();
+        const text = normalize(textOf(element));
+        return { element, rect, text, area: rect.width * rect.height };
+      })
+      .filter(({ rect, text }) => {
+        if (rect.width < 220 || rect.width > 430 || rect.height < 180) return false;
+        if (rect.left < window.innerWidth * 0.45) return false;
+        return text.includes("선택상품") || text.includes("업체명") || text.includes("공급가") || text.includes("장바구니담기");
+      });
+
+    candidates
+      .sort((a, b) => {
+        const aScore = (a.text.includes("장바구니담기") ? 0 : 1) + (a.text.includes("업체명") ? 0 : 1);
+        const bScore = (b.text.includes("장바구니담기") ? 0 : 1) + (b.text.includes("업체명") ? 0 : 1);
+        if (aScore !== bScore) return aScore - bScore;
+        return a.area - b.area;
+      });
+    return candidates[0]?.element || document;
+  }
+
+  function findCartButton(root = document) {
+    const candidates = [...root.querySelectorAll("button, a, input[type=button], input[type=submit]")]
       .filter(isVisible)
       .map((element) => {
         const text = clickableText(element);
@@ -214,13 +257,13 @@
     return true;
   }
 
-  function findVendorRow(vendorName) {
+  function findVendorRow(vendorName, root = document) {
     const targetVendor = normalize(vendorName);
-    const rows = [...document.querySelectorAll("tr, li, div")]
+    const rows = [...root.querySelectorAll("tr, li, div")]
       .filter(isVisible)
       .filter((element) => {
         const rect = element.getBoundingClientRect();
-        if (rect.width > 900 || rect.height > 180 || rect.height < 12) return false;
+        if (rect.width > 430 || rect.height > 180 || rect.height < 12) return false;
         return normalize(textOf(element)).includes(targetVendor);
       })
       .sort((a, b) => {
@@ -232,28 +275,31 @@
     return rows[0] || null;
   }
 
-  function findQuantityInput(anchor) {
+  function findQuantityInput(anchor, root = document) {
     const localInput = [...anchor.querySelectorAll("input")]
       .filter(isVisible)
       .find((input) => /number|text|tel/.test(input.type || "text") && !input.readOnly && !input.disabled);
     if (localInput) return localInput;
 
     const searchInput = findSearchInput();
-    const inputs = [...document.querySelectorAll("input")]
+    const inputs = [...root.querySelectorAll("input")]
       .filter(isVisible)
       .filter((input) => input !== searchInput)
       .filter((input) => /number|text|tel/.test(input.type || "text") && !input.readOnly && !input.disabled)
       .filter((input) => {
         const rect = input.getBoundingClientRect();
         const value = String(input.value || "").trim();
-        return rect.width <= 90 && (!value || /^\d+$/.test(value));
+        return rect.width <= 95 && rect.height <= 38 && (!value || /^\d+$/.test(value));
       })
       .sort((a, b) => distanceBetween(a, anchor) - distanceBetween(b, anchor));
     return inputs[0] || null;
   }
 
   async function setVendorQuantityAndCart(vendorName, productName, qty) {
-    const row = findVendorRow(vendorName);
+    const panel = findOrderPanel(vendorName);
+    log(`주문패널 확인: ${panel === document ? "전체 화면 기준" : "오른쪽 선택상품 패널 기준"}`);
+
+    const row = findVendorRow(vendorName, panel);
     if (!row) {
       return {
         ok: false,
@@ -273,7 +319,7 @@
       await sleep(250);
     }
 
-    const qtyInput = findQuantityInput(row);
+    const qtyInput = findQuantityInput(row, panel);
     if (!qtyInput) {
       return {
         ok: false,
@@ -284,9 +330,10 @@
       };
     }
     setValue(qtyInput, qty);
+    log(`수량 입력: ${vendorName} ${qty}개`);
     await sleep(250);
 
-    const cartButton = findCartButton();
+    const cartButton = findCartButton(panel);
     if (!cartButton) {
       return {
         ok: false,
@@ -297,6 +344,7 @@
       };
     }
 
+    log("장바구니 담기 버튼 클릭");
     clickElement(cartButton);
     await sleep(1000);
     return { ok: true, vendor: vendorName, product: productName, qty };
