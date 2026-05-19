@@ -282,18 +282,6 @@
   // 대신 addProductBtn을 숨겨서 사용자가 직접 추가 못하게만 함
   // 더 확실한 방법: MutationObserver로 빈 상품 즉시 제거
   const productsEl = document.getElementById('products');
-  const observer = new MutationObserver(() => {
-    productsEl.querySelectorAll('.product').forEach(card => {
-      const nameVal = card.querySelector('.nameInput')?.value || '';
-      const quotes = card.querySelectorAll('.quoteRows tr');
-      if (!nameVal.trim() && quotes.length === 0) {
-        card.remove(); // 직접 제거 (클릭 이벤트 대신)
-        if (typeof calculate === 'function') calculate();
-      }
-    });
-  });
-  observer.observe(productsEl, { childList: true });
-
   function removeEmptyProducts() {
     let removed = false;
     productsEl.querySelectorAll('.product').forEach(card => {
@@ -304,15 +292,26 @@
         removed = true;
       }
     });
-    if (removed && typeof calculate === 'function') calculate();
+    return removed;
   }
+
+  const observer = new MutationObserver(() => {
+    if (removeEmptyProducts() && typeof calculate === 'function') calculate();
+  });
+  observer.observe(productsEl, { childList: true, subtree: false });
+
+  // 즉시 + 타이밍 여유 두고 반복 실행
   removeEmptyProducts();
-  setTimeout(removeEmptyProducts, 300);
-  setTimeout(removeEmptyProducts, 800);
+  setTimeout(() => { if(removeEmptyProducts() && typeof calculate === 'function') calculate(); }, 200);
+  setTimeout(() => { if(removeEmptyProducts() && typeof calculate === 'function') calculate(); }, 500);
+  setTimeout(() => { if(removeEmptyProducts() && typeof calculate === 'function') calculate(); }, 1000);
 
   // calculator.js에서 호출 가능하도록 window에 노출
   window.__hmpRemoveEmpty = removeEmptyProducts;
-  window.__hmpCalculate = () => { if (typeof calculate === 'function') calculate(); };
+  window.__hmpCalculate = () => {
+    removeEmptyProducts();
+    if (typeof calculate === 'function') calculate();
+  };
 
   // 상품 체크박스 - 체크 해제 시 해당 상품의 모든 업체 비활성화
   document.getElementById('products').addEventListener('change', e => {
