@@ -81,6 +81,33 @@
     color: #9ca3af;
   }
 
+  /* 업체 미리보기 */
+  .productVendorPreview {
+    margin-top: 6px;
+    padding: 6px 10px;
+    background: #f8faff;
+    border-radius: 6px;
+    border: 1px solid #e0e7ff;
+    font-size: 11px;
+    color: #374151;
+    line-height: 1.6;
+  }
+  .productVendorPreview .vendor-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .productVendorPreview .vendor-name { color: #1a56db; font-weight: 600; }
+  .productVendorPreview .vendor-price { color: #111; }
+  .productVendorPreview .vendor-best {
+    background: #1a56db;
+    color: white;
+    font-size: 9px;
+    padding: 1px 4px;
+    border-radius: 3px;
+    margin-left: 3px;
+  }
+
   /* 빈 상태 안내 */
   #products:empty::after {
     content: '확장프로그램에서 HMP몰 상품을 캡처하면 여기에 추가됩니다.';
@@ -118,7 +145,9 @@
     <!-- 쿠폰 (숨김 - 확장프로그램에서 추가) -->
     <div style="display:none">
       <button id="addCouponBtn">쿠폰 추가</button>
-      <tbody id="couponRows"></tbody>
+      <table>
+        <tbody id="couponRows"></tbody>
+      </table>
     </div>
 
     <div class="sectionTitle">
