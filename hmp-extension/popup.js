@@ -2,6 +2,7 @@ const tabStateEl = document.querySelector("#tabState");
 const payloadInputEl = document.querySelector("#payloadInput");
 const pasteBtn = document.querySelector("#pasteBtn");
 const startBtn = document.querySelector("#startBtn");
+const testPanelBtn = document.querySelector("#testPanelBtn");
 const statusEl = document.querySelector("#status");
 const summaryEl = document.querySelector("#summary");
 
@@ -119,8 +120,32 @@ async function startAutoCart() {
   }
 }
 
+async function testConnection() {
+  try {
+    await getActiveTab();
+    if (!activeTab?.id || !/^https?:\/\/([^/]+\.)?hmpmall\.co\.kr\//.test(activeTab.url || "")) {
+      throw new Error("HMP몰 탭에서만 테스트할 수 있습니다.");
+    }
+
+    setStatus("HMP 화면에 테스트 패널을 띄우는 중입니다.");
+    await ensureContentScript(activeTab.id);
+    const response = await chrome.tabs.sendMessage(activeTab.id, {
+      type: "HMP_AUTO_CART_TEST",
+    });
+
+    if (!response?.ok) {
+      throw new Error(response?.message || "HMP 화면과 연결하지 못했습니다.");
+    }
+
+    setStatus("연결 성공입니다. HMP 화면 오른쪽 아래에 테스트 패널이 보여야 합니다.", "ok");
+  } catch (error) {
+    setStatus(error.message || "연결 테스트 중 오류가 발생했습니다.", "error");
+  }
+}
+
 pasteBtn.addEventListener("click", pasteClipboard);
 startBtn.addEventListener("click", startAutoCart);
+testPanelBtn?.addEventListener("click", testConnection);
 payloadInputEl.addEventListener("input", () => {
   try {
     renderSummary(parsePayload());

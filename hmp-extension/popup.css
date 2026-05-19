@@ -72,6 +72,11 @@ textarea {
   margin-top: 10px;
 }
 
+.actions.single {
+  grid-template-columns: 1fr;
+  margin-top: 8px;
+}
+
 button {
   height: 38px;
   border: 1px solid var(--line);
