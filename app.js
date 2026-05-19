@@ -23,11 +23,13 @@ const suggestionsEl = document.querySelector("#suggestions");
 const copyAutoCartBtn = document.querySelector("#copyAutoCartBtn");
 const autoCartStatusEl = document.querySelector("#autoCartStatus");
 const statusBadgeEl = document.querySelector("#statusBadge");
+const undoSuggestionBtn = document.querySelector("#undoSuggestionBtn");
 const storageKey = "hmp-helper-state-v1";
 let currentBestPlan = null;
 let currentDisplayPlan = null;
 let selectedVendors = new Set();
 let currentRankedPlans = [];
+let suggestionUndoSnapshot = null;
 
 const formatter = new Intl.NumberFormat("ko-KR");
 
@@ -655,12 +657,40 @@ function applyExtraQuantity(productId, extraQty) {
   const product = productsEl.querySelector(`.product[data-id="${CSS.escape(productId)}"]`);
   if (!product) return;
 
+  suggestionUndoSnapshot = readQuantitySnapshot();
+  updateUndoSuggestionButton();
+
   const input = product.querySelector(".qtyInput");
   const currentQty = Math.max(1, parseNumber(input.value));
   input.value = currentQty + extraQty;
   calculate();
   product.scrollIntoView({ block: "center", behavior: "smooth" });
   input.focus();
+}
+
+function readQuantitySnapshot() {
+  return [...productsEl.querySelectorAll(".product")].map((product) => ({
+    id: product.dataset.id,
+    qty: Math.max(1, parseNumber(product.querySelector(".qtyInput").value)),
+  }));
+}
+
+function restoreSuggestionSnapshot() {
+  if (!suggestionUndoSnapshot) return;
+
+  suggestionUndoSnapshot.forEach((item) => {
+    const product = productsEl.querySelector(`.product[data-id="${CSS.escape(item.id)}"]`);
+    if (product) product.querySelector(".qtyInput").value = item.qty;
+  });
+
+  suggestionUndoSnapshot = null;
+  updateUndoSuggestionButton();
+  calculate();
+}
+
+function updateUndoSuggestionButton() {
+  if (!undoSuggestionBtn) return;
+  undoSuggestionBtn.disabled = !suggestionUndoSnapshot;
 }
 
 function getPlanKey(plan) {
@@ -687,12 +717,19 @@ function renderSuggestions(plan, products, coupons) {
         ? ` data-product-id="${escapeHtml(suggestion.action.productId)}" data-extra-qty="${escapeHtml(String(suggestion.action.extraQty))}"`
         : "";
       return `
-      <button class="suggestionCard"${actionAttrs} title="${escapeHtml(suggestion.detail)}">
+      <button class="suggestionCard"${actionAttrs}>
         <div class="suggestionCompany">${escapeHtml(suggestion.vendor)}</div>
         <div class="suggestionProduct">${escapeHtml(suggestion.productName)}</div>
         <div class="suggestionAction">${escapeHtml(suggestion.actionText)}</div>
         <div class="suggestionEffect">${escapeHtml(suggestion.effectText)}</div>
-        <div class="suggestionDetail">${escapeHtml(suggestion.detail).replaceAll("\n", "<br>")}</div>
+        <div class="suggestionDetail">
+          ${suggestion.detailRows.map(([label, value, tone = ""]) => `
+            <div class="suggestionDetailRow ${escapeHtml(tone)}">
+              <span>${escapeHtml(label)}</span>
+              <strong>${escapeHtml(value)}</strong>
+            </div>
+          `).join("")}
+        </div>
       </button>
     `;
     })
@@ -748,16 +785,17 @@ function buildActionableSuggestions(plan, products, coupons) {
         effectText: benefit > 0
           ? `그냥 추가하는 것보다 ${money(benefit)} 유리`
           : `실제 추가부담 ${money(realExtraCost)}`,
-        detail: [
-          `${targetLine.vendor}에서 ${compactProductName(product.name)} ${currentQty}개 -> ${currentQty + extraQty}개`,
-          `현재 추천 총액 ${money(currentTotal)}`,
-          `변경 후 추천 총액 ${money(newPlan.total)}`,
-          `일반 추가 예상 ${money(normalExtraCost)}`,
-          `실제 추가부담 ${money(realExtraCost)}`,
-          benefit > 0 ? `절약 효과 ${money(benefit)}` : "절약 효과는 작지만 조건 충족 조합입니다.",
-          couponText,
-          minText,
-        ].filter(Boolean).join("\n"),
+        detailRows: [
+          ["회사명", targetLine.vendor],
+          ["변경후", `${compactProductName(product.name)} ${currentQty}개 -> ${currentQty + extraQty}개`],
+          ["현재", money(currentTotal)],
+          ["변경후 총액", money(newPlan.total)],
+          ["일반 추가", money(normalExtraCost)],
+          ["실제 추가", money(realExtraCost)],
+          ["절약효과", benefit > 0 ? money(benefit) : "조건 충족 중심", benefit > 0 ? "save" : ""],
+          couponText ? ["쿠폰", couponText, "coupon"] : null,
+          minText ? ["조건", minText] : null,
+        ].filter(Boolean),
         action: {
           productId: product.id,
           extraQty,
@@ -880,6 +918,8 @@ function escapeHtml(value) {
 function loadSample() {
   productsEl.innerHTML = "";
   couponRowsEl.innerHTML = "";
+  suggestionUndoSnapshot = null;
+  updateUndoSuggestionButton();
   addProduct({
     search: "바세린",
     name: "바세린 오리지널 프로텍팅 젤리 100ml 1EA",
@@ -997,6 +1037,8 @@ function clearAll() {
   localStorage.removeItem(storageKey);
   productsEl.innerHTML = "";
   couponRowsEl.innerHTML = "";
+  suggestionUndoSnapshot = null;
+  updateUndoSuggestionButton();
   addProduct();
 }
 
@@ -1086,6 +1128,7 @@ clearBtn.addEventListener("click", clearAll);
 importHmpBtn.addEventListener("click", importHmpCapture);
 pasteClipboardBtn.addEventListener("click", pasteFromClipboard);
 copyAutoCartBtn.addEventListener("click", copyAutoCartPayload);
+undoSuggestionBtn?.addEventListener("click", restoreSuggestionSnapshot);
 addCouponBtn.addEventListener("click", () => {
   addCoupon();
   calculate();
