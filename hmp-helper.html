@@ -273,7 +273,11 @@
     }
   });
 
-  // app.js의 초기 addProduct() 호출 막기
+  // 확장프로그램 모드에서는 localStorage 이전 상태를 복원하지 않음
+  // (매번 새로 캡처해서 추가하는 방식이므로)
+  if (typeof chrome !== 'undefined' && chrome.runtime?.id) {
+    try { localStorage.removeItem('hmp-helper-state-v1'); } catch(e) {}
+  }
   // app.js 마지막줄: if (!restoreState()) { addProduct(); }
   // restoreState()가 false면 빈 상품이 생김 → localStorage를 비워서 restoreState()가 빈 배열 반환하게
   // 대신 addProductBtn을 숨겨서 사용자가 직접 추가 못하게만 함
