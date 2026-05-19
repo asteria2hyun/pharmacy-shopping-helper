@@ -174,6 +174,9 @@ function importHmpCapture() {
 }
 
 function parseHmpCapture(text, defaultMinOrder) {
+  const jsonCapture = parseHmpCaptureJson(text, defaultMinOrder);
+  if (jsonCapture) return jsonCapture;
+
   const lines = text
     .split(/\r?\n/)
     .map((line) => line.replace(/\s+/g, " ").trim())
@@ -221,6 +224,33 @@ function parseHmpCapture(text, defaultMinOrder) {
     name: guessProductName(lines),
     quotes: uniqueQuotes,
   };
+}
+
+function parseHmpCaptureJson(text, defaultMinOrder) {
+  try {
+    const data = JSON.parse(text);
+    if (data?.type !== "hmp-product-capture-v1") return null;
+
+    const quotes = Array.isArray(data.quotes)
+      ? data.quotes
+          .map((quote) => ({
+            vendor: String(quote.vendor || "").trim(),
+            price: parseNumber(quote.price),
+            minOrder: parseNumber(quote.minOrder) || defaultMinOrder,
+            stock: quote.stock === "" ? "" : parseNumber(quote.stock),
+            enabled: quote.enabled ?? true,
+          }))
+          .filter((quote) => quote.vendor && quote.price > 0)
+      : [];
+
+    return {
+      search: String(data.search || "").trim(),
+      name: String(data.name || "").trim() || "HMP 선택 상품",
+      quotes,
+    };
+  } catch {
+    return null;
+  }
 }
 
 function guessSearch(lines) {
