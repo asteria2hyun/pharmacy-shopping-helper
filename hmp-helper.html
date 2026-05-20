@@ -173,10 +173,10 @@
       <button id="undoSuggestionBtn" class="ghost smallButton">원상태로</button>
     </div>
     <div id="suggestions" class="empty">쿠폰 조건이나 더 싼 업체가 보이면 제안합니다.</div>
-    <div class="autoCartBox" hidden>
-      <button id="copyAutoCartBtn" class="primary">자동담기 데이터 복사</button>
-      <button id="openHmpBtn" class="linkButton compactLink" type="button">HMP 열기</button>
-      <div id="autoCartStatus" class="autoCartStatus">확장프로그램에서 자동담기를 시작하세요.</div>
+    <div style="display:none">
+      <button id="copyAutoCartBtn">자동담기 데이터 복사</button>
+      <button id="openHmpBtn" type="button">HMP 열기</button>
+      <div id="autoCartStatus"></div>
     </div>
   </aside>
 </main>
@@ -241,28 +241,15 @@
 </template>
 
 <script>
-  // 저장 플래그가 없으면 이전 상태 클리어
-  const HMP_SAVE_FLAG = 'hmp-helper-saved';
-  const HMP_STATE_KEY = 'hmp-helper-state-v1';
-  if (!localStorage.getItem(HMP_SAVE_FLAG)) {
-    try { localStorage.removeItem(HMP_STATE_KEY); } catch(e) {}
-  }
-  // 플래그는 한 번 쓰고 제거 (매번 명시적으로 저장해야 유지)
-  localStorage.removeItem(HMP_SAVE_FLAG);
+  // 항상 자동저장/복원 (플래그 방식 제거)
+  // app.js의 calculate()가 매번 saveState() 호출하므로 자동 영속됨
 </script>
 <script src="./app.js"></script>
 <script>
-  // HMP 열기
-  document.getElementById('openHmpBtn').addEventListener('click', () => {
-    if (typeof chrome !== 'undefined' && chrome.tabs) {
-      chrome.tabs.query({}, tabs => {
-        const hmpTab = tabs.find(t => t.url?.includes('hmpmall.co.kr'));
-        if (hmpTab) chrome.tabs.update(hmpTab.id, { active: true });
-        else chrome.tabs.create({ url: 'https://hmpmall.co.kr' });
-      });
-    } else {
-      window.open('https://hmpmall.co.kr', '_blank');
-    }
+  // openHmpBtn은 숨김 처리됨 (자동담기 영역 제거)
+  var _openHmpBtn = document.getElementById('openHmpBtn');
+  if (_openHmpBtn) _openHmpBtn.addEventListener('click', function() {
+    window.open('https://hmpmall.co.kr', '_blank');
   });
 
   // 빈 상품 제거 유틸
@@ -302,7 +289,7 @@
     if (typeof calculate === 'function') calculate();
   };
 
-  // calculate debounce - 빠른 연속 입력 시 마지막 입력 후 300ms 뒤 한 번만 실행
+  // calculate debounce - 빠른 연속 입력 시 마지막 입력 후 500ms 뒤 한 번만 실행 (렉 방지)
   var __calcTimer = null;
   var __origCalculate = null;
   function installDebounce() {
@@ -313,25 +300,15 @@
       clearTimeout(__calcTimer);
       __calcTimer = setTimeout(function() {
         __origCalculate();
-      }, 300);
+      }, 500);
     };
   }
   // app.js 로드 직후 설치
   setTimeout(installDebounce, 0);
   setTimeout(installDebounce, 200);
 
-  // 저장하기 버튼
+  // 저장하기 버튼 - 이제 항상 자동저장되므로 피드백만 표시
   document.getElementById('saveStateBtn').addEventListener('click', function() {
-    // app.js의 saveState 함수 직접 호출
-    if (typeof saveState === 'function') {
-      const products = typeof readProducts === 'function' ? readProducts() : [];
-      const coupons = typeof readCoupons === 'function' ? readCoupons() : [];
-      saveState(products, coupons);
-    }
-    // 저장 플래그 설정 → 다음 로드 시 복원
-    localStorage.setItem('hmp-helper-saved', '1');
-
-    // 버튼 피드백
     var btn = document.getElementById('saveStateBtn');
     var orig = btn.textContent;
     btn.textContent = '✅ 저장됨';
