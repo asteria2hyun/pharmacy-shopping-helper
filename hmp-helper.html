@@ -143,6 +143,7 @@
       <div class="titleActions">
         <button id="runTestBtn"    class="secondary" style="display:none">테스트</button>
         <button id="loadSampleBtn" class="ghost"     style="display:none">예시</button>
+        <button id="saveStateBtn"  class="ghost" title="현재 목록 저장">💾 저장</button>
         <button id="clearBtn" class="ghost">초기화</button>
       </div>
     </div>
@@ -240,8 +241,14 @@
 </template>
 
 <script>
-  // app.js 로드 전 localStorage 클리어 (이전 상태 복원 방지)
-  try { localStorage.removeItem('hmp-helper-state-v1'); } catch(e) {}
+  // 저장 플래그가 없으면 이전 상태 클리어
+  const HMP_SAVE_FLAG = 'hmp-helper-saved';
+  const HMP_STATE_KEY = 'hmp-helper-state-v1';
+  if (!localStorage.getItem(HMP_SAVE_FLAG)) {
+    try { localStorage.removeItem(HMP_STATE_KEY); } catch(e) {}
+  }
+  // 플래그는 한 번 쓰고 제거 (매번 명시적으로 저장해야 유지)
+  localStorage.removeItem(HMP_SAVE_FLAG);
 </script>
 <script src="./app.js"></script>
 <script>
@@ -295,7 +302,27 @@
     if (typeof calculate === 'function') calculate();
   };
 
-  // 상품 체크박스 - 체크 해제 시 업체 비활성화
+  // 저장하기 버튼
+  document.getElementById('saveStateBtn').addEventListener('click', function() {
+    // app.js의 saveState 함수 직접 호출
+    if (typeof saveState === 'function') {
+      const products = typeof readProducts === 'function' ? readProducts() : [];
+      const coupons = typeof readCoupons === 'function' ? readCoupons() : [];
+      saveState(products, coupons);
+    }
+    // 저장 플래그 설정 → 다음 로드 시 복원
+    localStorage.setItem('hmp-helper-saved', '1');
+
+    // 버튼 피드백
+    var btn = document.getElementById('saveStateBtn');
+    var orig = btn.textContent;
+    btn.textContent = '✅ 저장됨';
+    btn.style.color = '#16a34a';
+    setTimeout(function() {
+      btn.textContent = orig;
+      btn.style.color = '';
+    }, 1500);
+  });
   document.getElementById('products').addEventListener('change', function(e) {
     var cb = e.target;
     if (!cb.classList.contains('productEnabledCb')) return;
