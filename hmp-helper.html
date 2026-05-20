@@ -355,8 +355,64 @@
       };
     }).filter(function(c) { return c.vendor && c.amount > 0; });
 
-    return { products: products, coupons: coupons };
+    return {
+      products: products,
+      coupons: coupons,
+      savedAt: new Date().toISOString()  // 저장 시각 포함
+    };
   }
+
+  // ── 저장 날짜 경고 배너 ─────────────────────────────────────
+  function showStalePriceWarning(savedAt) {
+    var existing = document.getElementById('__hmpStaleBanner');
+    if (existing) existing.remove();
+
+    if (!savedAt) return;
+    var savedDate = new Date(savedAt);
+    var now = new Date();
+    var diffDays = Math.floor((now - savedDate) / (1000 * 60 * 60 * 24));
+    if (diffDays < 1) return; // 당일이면 표시 안 함
+
+    var banner = document.createElement('div');
+    banner.id = '__hmpStaleBanner';
+    var dateStr = savedDate.toLocaleDateString('ko-KR', { month: 'long', day: 'numeric' });
+    banner.style.cssText = [
+      'margin: 12px 0 0',
+      'padding: 10px 14px',
+      'background: #fffbeb',
+      'border: 1px solid #fcd34d',
+      'border-radius: 8px',
+      'font-size: 12px',
+      'color: #92400e',
+      'display: flex',
+      'align-items: center',
+      'justify-content: space-between',
+      'gap: 8px'
+    ].join(';');
+    banner.innerHTML = [
+      '<span>⚠️ <strong>' + dateStr + '</strong> 저장된 가격입니다.',
+      diffDays + '일 경과 — HMP몰에서 다시 캡처하면 최신 가격으로 업데이트됩니다.</span>',
+      '<button onclick="document.getElementById(\'__hmpStaleBanner\').remove()" ',
+      'style="background:none;border:none;cursor:pointer;font-size:14px;color:#92400e;',
+      'padding:0;height:auto;min-width:0">✕</button>'
+    ].join('');
+
+    // sectionTitle 바로 아래에 삽입
+    var sectionTitle = document.querySelector('.sectionTitle');
+    if (sectionTitle) {
+      sectionTitle.insertAdjacentElement('afterend', banner);
+    }
+  }
+
+  // ── 페이지 로드 시 저장 날짜 확인 ──────────────────────────
+  setTimeout(function() {
+    try {
+      var saved = JSON.parse(localStorage.getItem(HMP_STATE_KEY) || 'null');
+      if (saved && saved.savedAt) {
+        showStalePriceWarning(saved.savedAt);
+      }
+    } catch(e) {}
+  }, 800); // restoreState() 완료 후 실행
 
   function autoSave() {
     clearTimeout(__saveTimer);
@@ -389,6 +445,8 @@
     try {
       localStorage.setItem(HMP_STATE_KEY, JSON.stringify(readFullState()));
     } catch(e) { console.warn('[HMP] 저장 실패:', e); }
+    // 방금 저장했으니 오래된 가격 배너 제거
+    document.getElementById('__hmpStaleBanner')?.remove();
     var btn = document.getElementById('saveStateBtn');
     var orig = btn.textContent;
     btn.textContent = '✅ 저장됨';
