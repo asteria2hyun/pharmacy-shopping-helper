@@ -1071,7 +1071,7 @@ function saveState(products, coupons = []) {
 function restoreState() {
   try {
     const saved = JSON.parse(localStorage.getItem(storageKey) || "[]");
-    const products = Array.isArray(saved) ? saved : saved.products;
+    const products = (Array.isArray(saved) ? saved : saved.products)?.filter((product) => !isEmptyProductData(product));
     const coupons = Array.isArray(saved) ? [] : saved.coupons;
     if (!Array.isArray(products) || !products.length) return false;
     productsEl.innerHTML = "";
@@ -1085,14 +1085,20 @@ function restoreState() {
   }
 }
 
+function isEmptyProductData(product) {
+  if (!product || typeof product !== "object") return true;
+  const hasName = Boolean(String(product.name ?? "").trim());
+  const hasSearch = Boolean(String(product.search ?? "").trim());
+  return !hasName && !hasSearch;
+}
+
 function clearAll() {
   localStorage.removeItem(storageKey);
   productsEl.innerHTML = "";
   couponRowsEl.innerHTML = "";
   suggestionUndoSnapshot = null;
   updateUndoSuggestionButton();
-  if (shouldShowInitialProduct()) addProduct();
-  else calculate();
+  calculate();
 }
 
 async function pasteFromClipboard() {
@@ -1187,11 +1193,6 @@ addCouponBtn.addEventListener("click", () => {
   calculate();
 });
 
-function shouldShowInitialProduct() {
-  return !addProductBtn || getComputedStyle(addProductBtn).display !== "none";
-}
-
 if (!restoreState()) {
-  if (shouldShowInitialProduct()) addProduct();
-  else calculate();
+  calculate();
 }
