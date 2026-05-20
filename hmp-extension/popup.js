@@ -419,56 +419,19 @@ btnCapture.addEventListener('click', async () => {
       dotCalc.className = 'dot ok'; statusCalc.textContent = '계산기 연결됨';
       updateCartButton();
       await waitForTabLoad(calcTabId);
-    } else {
-      // 탭 상태 확인 - URL이 맞아도 실제 로드 실패(오류 페이지)일 수 있음
-      try {
-        const calcTab = await chrome.tabs.get(calcTabId);
-        const url = calcTab.url || '';
-        const isErrorUrl = url.startsWith('chrome-error://') || url.startsWith('about:neterror') || url === '';
-        // PING으로 실제 응답 가능한지 먼저 확인
-        let pingOk = false;
-        try {
-          await chrome.tabs.sendMessage(calcTabId, { type: 'PING_CALC' });
-          pingOk = true;
-        } catch {}
-
-        if (!pingOk) {
-          // PING 실패 → inject 시도
-          let injected = false;
-          try {
-            await chrome.scripting.executeScript({ target: { tabId: calcTabId }, files: ['calculator.js'] });
-            await sleep(500);
-            injected = true;
-          } catch {}
-
-          if (!injected || isErrorUrl) {
-            // inject도 실패(오류 페이지) → 재로드
-            showMsg(msgCapture, '계산기 페이지 재로드 중...', '');
-            await chrome.tabs.update(calcTabId, { url: CALC_URL });
-            await waitForTabLoad(calcTabId);
-          }
-        }
-      } catch {
-        // 탭 자체가 사라진 경우 → 새로 열기
-        showMsg(msgCapture, '계산기 탭 다시 여는 중...', '');
-        const tab = await chrome.tabs.create({ url: CALC_URL, active: false });
-        calcTabId = tab.id;
-        dotCalc.className = 'dot ok'; statusCalc.textContent = '계산기 연결됨';
-        updateCartButton();
-        await waitForTabLoad(calcTabId);
-      }
     }
 
-    // calculator.js inject 최종 확인
+    // calculator.js inject 확인 - 없으면 직접 inject
     showMsg(msgCapture, '계산기 연결 확인 중...', '');
     let calcReady = false;
     try {
       await chrome.tabs.sendMessage(calcTabId, { type: 'PING_CALC' });
       calcReady = true;
     } catch {
+      // inject 시도
       try {
         await chrome.scripting.executeScript({ target: { tabId: calcTabId }, files: ['calculator.js'] });
-        await sleep(800);
+        await sleep(500);
         calcReady = true;
       } catch (e) {
         showMsg(msgCapture, '계산기 연결 실패: ' + e.message, 'error');
