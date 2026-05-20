@@ -420,19 +420,18 @@ btnCapture.addEventListener('click', async () => {
       updateCartButton();
       await waitForTabLoad(calcTabId);
     } else {
-      // 계산기 탭이 오류 페이지(chrome-error:// 등)인지 확인 → 자동 재로드
+      // 오류 페이지인 경우만 재로드 (정상 계산기 탭은 절대 건드리지 않음)
       try {
         const calcTab = await chrome.tabs.get(calcTabId);
         const url = calcTab.url || '';
-        const isErrorPage = url.startsWith('chrome-error://') || url.startsWith('about:') || url === '' ||
-                            (!url.includes('asteria2hyun.github.io'));
+        const isErrorPage = url.startsWith('chrome-error://') || url.startsWith('about:neterror') || url === '';
         if (isErrorPage) {
           showMsg(msgCapture, '계산기 페이지 재로드 중...', '');
           await chrome.tabs.update(calcTabId, { url: CALC_URL });
           await waitForTabLoad(calcTabId);
         }
       } catch {
-        // 탭 자체가 사라진 경우 → 새로 열기
+        // 탭 자체가 사라진 경우에만 새로 열기
         showMsg(msgCapture, '계산기 탭 다시 여는 중...', '');
         const tab = await chrome.tabs.create({ url: CALC_URL, active: false });
         calcTabId = tab.id;
@@ -442,32 +441,26 @@ btnCapture.addEventListener('click', async () => {
       }
     }
 
-    // calculator.js inject 확인 - 없으면 직접 inject
+    // calculator.js inject 확인
     showMsg(msgCapture, '계산기 연결 확인 중...', '');
     let calcReady = false;
     try {
       await chrome.tabs.sendMessage(calcTabId, { type: 'PING_CALC' });
       calcReady = true;
     } catch {
-      // inject 시도
+      // PING 실패 → inject 시도
       try {
         await chrome.scripting.executeScript({ target: { tabId: calcTabId }, files: ['calculator.js'] });
-        await sleep(500);
+        await sleep(800);
         calcReady = true;
-      } catch (e) {
-        // inject도 실패하면 탭을 새로 만들어서 재시도
+      } catch {
+        // inject도 실패 → 페이지 새로고침 후 재시도 (탭 삭제 안 함)
         try {
-          showMsg(msgCapture, '계산기 탭 재생성 중...', '');
-          await chrome.tabs.remove(calcTabId);
-        } catch {}
-        const tab = await chrome.tabs.create({ url: CALC_URL, active: false });
-        calcTabId = tab.id;
-        dotCalc.className = 'dot ok'; statusCalc.textContent = '계산기 연결됨';
-        updateCartButton();
-        await waitForTabLoad(calcTabId);
-        try {
+          showMsg(msgCapture, '계산기 페이지 새로고침 중...', '');
+          await chrome.tabs.reload(calcTabId);
+          await waitForTabLoad(calcTabId);
           await chrome.scripting.executeScript({ target: { tabId: calcTabId }, files: ['calculator.js'] });
-          await sleep(500);
+          await sleep(800);
           calcReady = true;
         } catch (e2) {
           showMsg(msgCapture, '계산기 연결 실패: ' + e2.message, 'error');
