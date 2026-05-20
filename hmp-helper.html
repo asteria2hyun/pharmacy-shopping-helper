@@ -138,6 +138,13 @@
       <table><tbody id="couponRows"></tbody></table>
     </div>
 
+    <!-- 자동담기 버튼 (숨김 - 확장프로그램에서 사용) -->
+    <div style="display:none">
+      <button id="copyAutoCartBtn">자동담기 데이터 복사</button>
+      <button id="openHmpBtn" type="button">HMP 열기</button>
+      <div id="autoCartStatus"></div>
+    </div>
+
     <div class="sectionTitle">
       <h2>📦 주문 상품 목록</h2>
       <div class="titleActions">
@@ -173,11 +180,6 @@
       <button id="undoSuggestionBtn" class="ghost smallButton">원상태로</button>
     </div>
     <div id="suggestions" class="empty">쿠폰 조건이나 더 싼 업체가 보이면 제안합니다.</div>
-    <div style="display:none">
-      <button id="copyAutoCartBtn">자동담기 데이터 복사</button>
-      <button id="openHmpBtn" type="button">HMP 열기</button>
-      <div id="autoCartStatus"></div>
-    </div>
   </aside>
 </main>
 
@@ -240,155 +242,141 @@
   </tr>
 </template>
 
-<script>
-  // 항상 자동저장/복원 (플래그 방식 제거)
-  // app.js의 calculate()가 매번 saveState() 호출하므로 자동 영속됨
-</script>
 <script src="./app.js"></script>
 <script>
-  // openHmpBtn은 숨김 처리됨 (자동담기 영역 제거)
-  var _openHmpBtn = document.getElementById('openHmpBtn');
-  if (_openHmpBtn) _openHmpBtn.addEventListener('click', function() {
-    window.open('https://hmpmall.co.kr', '_blank');
-  });
+(function() {
+  'use strict';
 
-  // 빈 상품 제거 유틸
-  var __hmpProductsEl = document.getElementById('products');
+  // ── 1. calculate debounce (500ms) ─────────────────────────────
+  // app.js 로드 직후, calculate를 debounce 래핑
+  // calculator.js의 importHmpBtn.click() → app.js addProduct() → calculate() 직접 호출은
+  // 래핑 전이므로 정상 동작, 이후 input 이벤트만 debounce 적용됨
+  var __calcTimer = null;
+  var __origCalculate = typeof calculate === 'function' ? calculate : null;
+  if (__origCalculate) {
+    window.calculate = function() {
+      clearTimeout(__calcTimer);
+      __calcTimer = setTimeout(__origCalculate, 500);
+    };
+  }
+
+  // ── 2. 자동저장: calculate 완료 후 전체 DOM 데이터로 저장 ──────
+  // app.js의 saveState는 filtered 데이터를 저장하므로
+  // origCalculate를 래핑해서 실행 후 full DOM으로 덮어씀
+  var HMP_STATE_KEY = 'hmp-helper-state-v1';
+
+  function saveFullState() {
+    try {
+      var products = [...document.querySelectorAll('#products .product')].map(function(p, i) {
+        return {
+          name:   (p.querySelector('.nameInput')?.value || '').trim() || ('상품' + (i+1)),
+          search: (p.querySelector('.searchInput')?.value || '').trim(),
+          qty:    Math.max(1, Number(p.querySelector('.qtyInput')?.value) || 1),
+          quotes: [...p.querySelectorAll('.quoteRows tr')].map(function(r) {
+            return {
+              vendor:   (r.querySelector('.vendorInput')?.value   || '').trim(),
+              price:    Number(r.querySelector('.priceInput')?.value)   || 0,
+              minOrder: Number(r.querySelector('.minInput')?.value)     || 0,
+              stock:    r.querySelector('.stockInput')?.value === '' ? ''
+                        : (Number(r.querySelector('.stockInput')?.value) || 0),
+              enabled:  r.querySelector('.enabledInput')?.checked ?? true,
+            };
+          }).filter(function(q) { return q.vendor && q.price > 0; }),
+        };
+      }).filter(function(p) { return p.name && p.quotes.length > 0; });
+
+      var coupons = [...document.querySelectorAll('#couponRows tr')].map(function(r) {
+        return {
+          vendor:   (r.querySelector('.couponVendorInput')?.value  || '').trim(),
+          amount:   Number(r.querySelector('.couponAmountInput')?.value) || 0,
+          minOrder: Number(r.querySelector('.couponMinInput')?.value)    || 0,
+          qty:      Math.max(1, Number(r.querySelector('.couponQtyInput')?.value) || 1),
+          enabled:  r.querySelector('.couponEnabledInput')?.checked ?? true,
+        };
+      }).filter(function(c) { return c.vendor && c.amount > 0; });
+
+      localStorage.setItem(HMP_STATE_KEY, JSON.stringify({ products: products, coupons: coupons }));
+    } catch(e) { console.warn('[HMP] saveFullState 실패:', e); }
+  }
+
+  // origCalculate를 래핑해서 실행 후 full 저장
+  if (__origCalculate) {
+    var __wrappedOrig = __origCalculate;
+    __origCalculate = function() {
+      var result = __wrappedOrig();
+      // 계산 완료 후 비동기로 전체 저장 (계산 성능에 영향 없음)
+      setTimeout(saveFullState, 0);
+      return result;
+    };
+  }
+
+  // ── 3. 빈 상품 제거 ────────────────────────────────────────────
+  var __productsEl = document.getElementById('products');
 
   function isBlankProduct(card) {
-    const name = card.querySelector('.nameInput')?.value || '';
-    const quotes = [...card.querySelectorAll('.quoteRows tr')].filter(row =>
-      (row.querySelector('.vendorInput')?.value || '').trim() ||
-      (row.querySelector('.priceInput')?.value || '').trim()
-    );
-    return !name.trim() && quotes.length === 0;
+    var name = card.querySelector('.nameInput')?.value || '';
+    var hasQuotes = [...card.querySelectorAll('.quoteRows tr')].some(function(r) {
+      return (r.querySelector('.vendorInput')?.value || '').trim() ||
+             (r.querySelector('.priceInput')?.value  || '').trim();
+    });
+    return !name.trim() && !hasQuotes;
   }
 
   function removeEmptyProducts() {
     var removed = false;
-    __hmpProductsEl.querySelectorAll('.product').forEach(function(card) {
+    __productsEl.querySelectorAll('.product').forEach(function(card) {
       if (isBlankProduct(card)) { card.remove(); removed = true; }
     });
     return removed;
   }
 
-  var __hmpObserver = new MutationObserver(function() {
-    if (removeEmptyProducts() && typeof calculate === 'function') calculate();
+  var __observer = new MutationObserver(function() {
+    if (removeEmptyProducts() && __origCalculate) clearTimeout(__calcTimer), __origCalculate();
   });
-  __hmpObserver.observe(__hmpProductsEl, { childList: true });
+  __observer.observe(__productsEl, { childList: true });
 
   removeEmptyProducts();
   setTimeout(removeEmptyProducts, 50);
-  setTimeout(removeEmptyProducts, 200);
-  setTimeout(removeEmptyProducts, 600);
+  setTimeout(removeEmptyProducts, 300);
 
-  // calculator.js에서 호출용
-  window.__hmpRemoveEmpty = removeEmptyProducts;
-  window.__hmpCalculate = function() {
+  // calculator.js 에서 호출
+  window.__hmpRemoveEmpty  = removeEmptyProducts;
+  window.__hmpCalculate    = function() {
     removeEmptyProducts();
-    if (typeof calculate === 'function') calculate();
+    if (__origCalculate) __origCalculate();
   };
 
-  // ── DOM에서 필터 없이 전체 업체/가격 읽기 (저장 전용) ──────────────
-  // app.js의 readProducts()는 enabled=false, stock=0 업체를 제외하므로
-  // 저장용으로는 별도로 DOM 직접 파싱해서 전체를 보존한다.
-  function readProductsForSave() {
-    return [...document.querySelectorAll('#products .product')].map(function(product, index) {
-      var name = (product.querySelector('.nameInput')?.value || '').trim() || ('상품 ' + (index + 1));
-      var search = (product.querySelector('.searchInput')?.value || '').trim();
-      var qty = Math.max(1, parseFloat(product.querySelector('.qtyInput')?.value || '1') || 1);
-      var quotes = [...product.querySelectorAll('.quoteRows tr')].map(function(row) {
-        return {
-          vendor:   (row.querySelector('.vendorInput')?.value || '').trim(),
-          price:    parseFloat((row.querySelector('.priceInput')?.value || '').replace(/[^\d.]/g,'')) || 0,
-          minOrder: parseFloat((row.querySelector('.minInput')?.value  || '').replace(/[^\d.]/g,'')) || 0,
-          stock:    row.querySelector('.stockInput')?.value === ''
-                      ? ''
-                      : (parseFloat((row.querySelector('.stockInput')?.value || '').replace(/[^\d.]/g,'')) || 0),
-          enabled:  row.querySelector('.enabledInput')?.checked ?? true,
-        };
-      }).filter(function(q) { return q.vendor && q.price > 0; }); // 업체명+가격만 있으면 저장
-      return { name: name, search: search, qty: qty, quotes: quotes };
-    });
-  }
-
-  function readCouponsForSave() {
-    return [...document.querySelectorAll('#couponRows tr')].map(function(row) {
-      return {
-        vendor:   (row.querySelector('.couponVendorInput')?.value  || '').trim(),
-        amount:   parseFloat((row.querySelector('.couponAmountInput')?.value || '').replace(/[^\d.]/g,'')) || 0,
-        minOrder: parseFloat((row.querySelector('.couponMinInput')?.value    || '').replace(/[^\d.]/g,'')) || 0,
-        qty:      Math.max(1, parseFloat((row.querySelector('.couponQtyInput')?.value || '1').replace(/[^\d.]/g,'')) || 1),
-        enabled:  row.querySelector('.couponEnabledInput')?.checked ?? true,
-      };
-    }).filter(function(c) { return c.vendor && c.amount > 0; });
-  }
-
-  // ── saveState 가로채기 ────────────────────────────────────────────────
-  // app.js가 saveState(filteredProducts, filteredCoupons)를 호출할 때
-  // 대신 DOM 전체 데이터로 저장한다.
-  function installSaveInterceptor() {
-    if (typeof saveState !== 'function') return;
-    if (window.__hmpSaveIntercepted) return;
-    window.__hmpSaveIntercepted = true;
-    var origSave = saveState;
-    window.saveState = function(_products, _coupons) {
-      // DOM에서 필터 없는 전체 데이터를 읽어 저장
-      try {
-        var fullProducts = readProductsForSave();
-        var fullCoupons  = readCouponsForSave();
-        origSave(fullProducts, fullCoupons);
-      } catch(e) {
-        // 혹시 실패하면 원본 인자로 폴백
-        origSave(_products, _coupons);
-      }
-    };
-  }
-
-  // ── calculate debounce - 빠른 연속 입력 시 마지막 입력 후 500ms 뒤 한 번만 실행 (렉 방지)
-  var __calcTimer = null;
-  var __origCalculate = null;
-  function installDebounce() {
-    if (typeof calculate !== 'function') return;
-    if (__origCalculate) return; // 이미 설치됨
-    installSaveInterceptor(); // debounce 설치 시점에 saveState도 교체
-    __origCalculate = calculate;
-    window.calculate = function() {
-      clearTimeout(__calcTimer);
-      __calcTimer = setTimeout(function() {
-        __origCalculate();
-      }, 500);
-    };
-  }
-  // app.js 로드 직후 설치
-  setTimeout(installDebounce, 0);
-  setTimeout(installDebounce, 200);
-  setTimeout(function() { installSaveInterceptor(); }, 400); // 혹시 늦게 로드될 경우 대비
-
-  // 저장하기 버튼 - 이제 항상 자동저장되므로 피드백만 표시
+  // ── 4. 저장 버튼 ───────────────────────────────────────────────
   document.getElementById('saveStateBtn').addEventListener('click', function() {
-    var btn = document.getElementById('saveStateBtn');
+    saveFullState();
+    var btn = this;
     var orig = btn.textContent;
     btn.textContent = '✅ 저장됨';
     btn.style.color = '#16a34a';
-    setTimeout(function() {
-      btn.textContent = orig;
-      btn.style.color = '';
-    }, 1500);
+    setTimeout(function() { btn.textContent = orig; btn.style.color = ''; }, 1500);
   });
-  document.getElementById('products').addEventListener('change', function(e) {
+
+  // ── 5. 상품 체크박스 ────────────────────────────────────────────
+  __productsEl.addEventListener('change', function(e) {
     var cb = e.target;
     if (!cb.classList.contains('productEnabledCb')) return;
     var product = cb.closest('.product');
     if (!product) return;
-    var enabled = cb.checked;
-    product.classList.toggle('disabled', !enabled);
+    product.classList.toggle('disabled', !cb.checked);
     product.querySelectorAll('.enabledInput').forEach(function(input) {
-      input.checked = enabled;
+      input.checked = cb.checked;
       input.dispatchEvent(new Event('change', { bubbles: true }));
     });
     product.dispatchEvent(new Event('change', { bubbles: true }));
   });
+
+  // ── 6. openHmpBtn (숨김이지만 app.js가 참조) ───────────────────
+  var _openHmpBtn = document.getElementById('openHmpBtn');
+  if (_openHmpBtn) _openHmpBtn.addEventListener('click', function() {
+    window.open('https://hmpmall.co.kr', '_blank');
+  });
+
+})();
 </script>
 </body>
 </html>
