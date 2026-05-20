@@ -302,6 +302,24 @@
     if (typeof calculate === 'function') calculate();
   };
 
+  // calculate debounce - 빠른 연속 입력 시 마지막 입력 후 300ms 뒤 한 번만 실행
+  var __calcTimer = null;
+  var __origCalculate = null;
+  function installDebounce() {
+    if (typeof calculate !== 'function') return;
+    if (__origCalculate) return; // 이미 설치됨
+    __origCalculate = calculate;
+    window.calculate = function() {
+      clearTimeout(__calcTimer);
+      __calcTimer = setTimeout(function() {
+        __origCalculate();
+      }, 300);
+    };
+  }
+  // app.js 로드 직후 설치
+  setTimeout(installDebounce, 0);
+  setTimeout(installDebounce, 200);
+
   // 저장하기 버튼
   document.getElementById('saveStateBtn').addEventListener('click', function() {
     // app.js의 saveState 함수 직접 호출
