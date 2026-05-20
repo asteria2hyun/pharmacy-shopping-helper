@@ -667,6 +667,10 @@ button.altItem {
   line-height: 1.45;
 }
 
+aside h3:has(+ .autoCartBox[hidden]) {
+  display: none;
+}
+
 .vendorLines {
   display: grid;
   gap: 4px;
