@@ -289,12 +289,69 @@
     if (typeof calculate === 'function') calculate();
   };
 
-  // calculate debounce - 빠른 연속 입력 시 마지막 입력 후 500ms 뒤 한 번만 실행 (렉 방지)
+  // ── DOM에서 필터 없이 전체 업체/가격 읽기 (저장 전용) ──────────────
+  // app.js의 readProducts()는 enabled=false, stock=0 업체를 제외하므로
+  // 저장용으로는 별도로 DOM 직접 파싱해서 전체를 보존한다.
+  function readProductsForSave() {
+    return [...document.querySelectorAll('#products .product')].map(function(product, index) {
+      var name = (product.querySelector('.nameInput')?.value || '').trim() || ('상품 ' + (index + 1));
+      var search = (product.querySelector('.searchInput')?.value || '').trim();
+      var qty = Math.max(1, parseFloat(product.querySelector('.qtyInput')?.value || '1') || 1);
+      var quotes = [...product.querySelectorAll('.quoteRows tr')].map(function(row) {
+        return {
+          vendor:   (row.querySelector('.vendorInput')?.value || '').trim(),
+          price:    parseFloat((row.querySelector('.priceInput')?.value || '').replace(/[^\d.]/g,'')) || 0,
+          minOrder: parseFloat((row.querySelector('.minInput')?.value  || '').replace(/[^\d.]/g,'')) || 0,
+          stock:    row.querySelector('.stockInput')?.value === ''
+                      ? ''
+                      : (parseFloat((row.querySelector('.stockInput')?.value || '').replace(/[^\d.]/g,'')) || 0),
+          enabled:  row.querySelector('.enabledInput')?.checked ?? true,
+        };
+      }).filter(function(q) { return q.vendor && q.price > 0; }); // 업체명+가격만 있으면 저장
+      return { name: name, search: search, qty: qty, quotes: quotes };
+    });
+  }
+
+  function readCouponsForSave() {
+    return [...document.querySelectorAll('#couponRows tr')].map(function(row) {
+      return {
+        vendor:   (row.querySelector('.couponVendorInput')?.value  || '').trim(),
+        amount:   parseFloat((row.querySelector('.couponAmountInput')?.value || '').replace(/[^\d.]/g,'')) || 0,
+        minOrder: parseFloat((row.querySelector('.couponMinInput')?.value    || '').replace(/[^\d.]/g,'')) || 0,
+        qty:      Math.max(1, parseFloat((row.querySelector('.couponQtyInput')?.value || '1').replace(/[^\d.]/g,'')) || 1),
+        enabled:  row.querySelector('.couponEnabledInput')?.checked ?? true,
+      };
+    }).filter(function(c) { return c.vendor && c.amount > 0; });
+  }
+
+  // ── saveState 가로채기 ────────────────────────────────────────────────
+  // app.js가 saveState(filteredProducts, filteredCoupons)를 호출할 때
+  // 대신 DOM 전체 데이터로 저장한다.
+  function installSaveInterceptor() {
+    if (typeof saveState !== 'function') return;
+    if (window.__hmpSaveIntercepted) return;
+    window.__hmpSaveIntercepted = true;
+    var origSave = saveState;
+    window.saveState = function(_products, _coupons) {
+      // DOM에서 필터 없는 전체 데이터를 읽어 저장
+      try {
+        var fullProducts = readProductsForSave();
+        var fullCoupons  = readCouponsForSave();
+        origSave(fullProducts, fullCoupons);
+      } catch(e) {
+        // 혹시 실패하면 원본 인자로 폴백
+        origSave(_products, _coupons);
+      }
+    };
+  }
+
+  // ── calculate debounce - 빠른 연속 입력 시 마지막 입력 후 500ms 뒤 한 번만 실행 (렉 방지)
   var __calcTimer = null;
   var __origCalculate = null;
   function installDebounce() {
     if (typeof calculate !== 'function') return;
     if (__origCalculate) return; // 이미 설치됨
+    installSaveInterceptor(); // debounce 설치 시점에 saveState도 교체
     __origCalculate = calculate;
     window.calculate = function() {
       clearTimeout(__calcTimer);
@@ -306,6 +363,7 @@
   // app.js 로드 직후 설치
   setTimeout(installDebounce, 0);
   setTimeout(installDebounce, 200);
+  setTimeout(function() { installSaveInterceptor(); }, 400); // 혹시 늦게 로드될 경우 대비
 
   // 저장하기 버튼 - 이제 항상 자동저장되므로 피드백만 표시
   document.getElementById('saveStateBtn').addEventListener('click', function() {
