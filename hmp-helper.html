@@ -247,55 +247,6 @@
   // 저장 플래그 없음 - hmp-helper-state-v1은 항상 유지
 </script>
 <script src="./app.js"></script>
-<script>
-  // ── saveState 가로채기 (app.js 로드 직후) ──────────────────
-  // app.js의 calculate() → saveState(readProducts()...) 흐름에서
-  // readProducts()가 stock=0, enabled=false 업체를 필터링하므로
-  // saveState를 가로채서 DOM 전체 데이터로 저장
-  var HMP_KEY_CONFIRMED = 'hmp-helper-state-v1';
-  var HMP_KEY_TMP       = 'hmp-helper-state-tmp';
-
-  function readDomState(savedAt) {
-    var products = [...document.querySelectorAll('#products .product')].map(function(p, i) {
-      return {
-        name:   (p.querySelector('.nameInput')?.value || '').trim() || ('상품'+(i+1)),
-        search: (p.querySelector('.searchInput')?.value || '').trim(),
-        qty:    Math.max(1, Number(p.querySelector('.qtyInput')?.value) || 1),
-        quotes: [...p.querySelectorAll('.quoteRows tr')].map(function(r) {
-          return {
-            vendor:   (r.querySelector('.vendorInput')?.value || '').trim(),
-            price:    Number(r.querySelector('.priceInput')?.value) || 0,
-            minOrder: Number(r.querySelector('.minInput')?.value) || 0,
-            stock:    r.querySelector('.stockInput')?.value === '' ? ''
-                      : (Number(r.querySelector('.stockInput')?.value) || 0),
-            enabled:  r.querySelector('.enabledInput')?.checked ?? true,
-          };
-        }).filter(function(q) { return q.vendor && q.price > 0; }),
-      };
-    }).filter(function(p) { return p.quotes.length > 0; });
-    var coupons = [...document.querySelectorAll('#couponRows tr')].map(function(r) {
-      return {
-        vendor:   (r.querySelector('.couponVendorInput')?.value || '').trim(),
-        amount:   Number(r.querySelector('.couponAmountInput')?.value) || 0,
-        minOrder: Number(r.querySelector('.couponMinInput')?.value) || 0,
-        qty:      Math.max(1, Number(r.querySelector('.couponQtyInput')?.value) || 1),
-        enabled:  r.querySelector('.couponEnabledInput')?.checked ?? true,
-      };
-    }).filter(function(c) { return c.vendor && c.amount > 0; });
-    return { products: products, coupons: coupons, savedAt: savedAt || new Date().toISOString() };
-  }
-
-  // app.js saveState → 임시 키에만 저장
-  if (typeof saveState === 'function') {
-    window.saveState = function(_p, _c) {
-      try {
-        var prev = {};
-        try { prev = JSON.parse(localStorage.getItem(HMP_KEY_TMP) || '{}'); } catch(e) {}
-        localStorage.setItem(HMP_KEY_TMP, JSON.stringify(readDomState(prev.savedAt)));
-      } catch(e) { console.warn('[HMP] saveState 오버라이드 실패:', e); }
-    };
-  }
-</script>
 <script src="./calculator.js"></script>
 <script>
   // ── HMP 열기 ───────────────────────────────────────────────
@@ -348,13 +299,9 @@
     if (typeof __debouncedCalculate === 'function') __debouncedCalculate();
   };
 
-  // ── calculate debounce ─────────────────────────────────────
-  // app.js 로드 직후 calculate를 교체하고,
-  // 추가로 #products의 input/change 이벤트를 캡처 단계에서 가로채
-  // app.js 내부 리스너가 calculate()를 직접 호출해도 debounce 적용
+  // ── calculate debounce 600ms ────────────────────────────────
   var __calcTimer = null;
   var __origCalculate = null;
-
   window.__debouncedCalculate = function() {
     clearTimeout(__calcTimer);
     __calcTimer = setTimeout(function() {
@@ -368,28 +315,18 @@
     __origCalculate = calculate;
     window.calculate = window.__debouncedCalculate;
   }
-  // app.js 로드 직후 동기 설치
-  installDebounce();
+  installDebounce(); // 동기 즉시 실행
   setTimeout(installDebounce, 0);
-  setTimeout(installDebounce, 100);
+  setTimeout(installDebounce, 200);
 
-  // app.js 내부 이벤트 리스너가 원본 calculate를 직접 호출하는 경우를 막기 위해
-  // #products와 document의 input/change 이벤트를 캡처 단계에서 가로채
-  // → calculate 호출 타이밍을 debounce로 지연
-  var __eventIntercepting = false;
-  function interceptCalcEvents(el) {
-    ['input', 'change'].forEach(function(type) {
-      el.addEventListener(type, function() {
-        // 이벤트 발생 시 현재 calculate가 원본이면 debounce로 교체 (재확인)
-        if (typeof calculate === 'function' && calculate !== window.__debouncedCalculate) {
-          if (!__origCalculate) __origCalculate = calculate;
-          window.calculate = window.__debouncedCalculate;
-        }
-      }, true); // 캡처 단계 - app.js 리스너보다 먼저 실행
-    });
-  }
-  interceptCalcEvents(document.getElementById('products'));
-  interceptCalcEvents(document);
+  // app.js 내부 리스너가 원본 calculate를 직접 호출하는 경우 대비
+  // 캡처 단계에서 calculate가 원본으로 복구됐으면 재교체
+  document.getElementById('products').addEventListener('input', function() {
+    if (typeof calculate === 'function' && calculate !== window.__debouncedCalculate) {
+      if (!__origCalculate) __origCalculate = calculate;
+      window.calculate = window.__debouncedCalculate;
+    }
+  }, true);
 
   // ── 자동저장 ───────────────────────────────────────────────
   // 상품/수량/체크박스/쿠폰 변경 시 자동 저장
