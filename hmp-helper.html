@@ -244,9 +244,69 @@
 </template>
 
 <script>
-  // 저장 플래그 없음 - hmp-helper-state-v1은 항상 유지
+  // ── app.js 로드 전: addEventListener 감싸기 ──────────────────
+  // app.js가 등록하는 calculate 리스너를 자동으로 debounced 버전으로 교체
+  // 이렇게 하면 나중에 window.calculate를 바꿔도 기존 리스너까지 적용됨
+  var __calcTimer    = null;
+  var __origCalculate = null;
+  var __calcSuspended = false;
+  var __calcDirty     = false;
+
+  // suspend/resume - 캡처 업로드 중 계산 일시정지
+  window.__hmpSuspendCalculate = function() {
+    __calcSuspended = true;
+    __calcDirty = false;
+  };
+  window.__hmpResumeCalculate = function() {
+    __calcSuspended = false;
+    if (__calcDirty) {
+      __calcDirty = false;
+      window.__hmpFlushCalculate();
+    }
+  };
+  window.__hmpFlushCalculate = function() {
+    clearTimeout(__calcTimer);
+    if (typeof __origCalculate === 'function') __origCalculate();
+  };
+  window.__debouncedCalculate = function() {
+    if (__calcSuspended) { __calcDirty = true; return; }
+    clearTimeout(__calcTimer);
+    __calcTimer = setTimeout(function() {
+      if (typeof __origCalculate === 'function') __origCalculate();
+    }, 600);
+  };
+
+  // app.js 로드 전에 EventTarget.prototype.addEventListener를 감싸서
+  // calculate 함수가 리스너로 등록될 때 자동으로 debounced 버전으로 교체
+  var __origAddEventListener = EventTarget.prototype.addEventListener;
+  EventTarget.prototype.addEventListener = function(type, listener, options) {
+    var wrappedListener = listener;
+    if ((type === 'input' || type === 'change') && typeof listener === 'function') {
+      wrappedListener = function(e) {
+        // calculate가 아직 교체 전이고 나중에 __origCalculate가 설정될 예정이면 패스
+        if (typeof __origCalculate === 'function' && listener === __origCalculate) {
+          window.__debouncedCalculate();
+          return;
+        }
+        listener.call(this, e);
+      };
+      wrappedListener.__hmpWrapped = true;
+      wrappedListener.__hmpOriginal = listener;
+    }
+    return __origAddEventListener.call(this, type, wrappedListener, options);
+  };
 </script>
 <script src="./app.js"></script>
+<script>
+  // app.js 로드 완료 → addEventListener 래핑 해제, calculate 교체
+  EventTarget.prototype.addEventListener = __origAddEventListener;
+
+  // calculate 교체
+  if (typeof calculate === 'function') {
+    __origCalculate = calculate;
+    window.calculate = window.__debouncedCalculate;
+  }
+</script>
 <script src="./calculator.js"></script>
 <script>
   // ── HMP 열기 ───────────────────────────────────────────────
@@ -282,8 +342,10 @@
     return removed;
   }
 
+  // MutationObserver - suspend 중이면 계산 안 함
   var __hmpObserver = new MutationObserver(function() {
-    if (removeEmptyProducts() && typeof __debouncedCalculate === 'function') __debouncedCalculate();
+    removeEmptyProducts();
+    if (!__calcSuspended) window.__debouncedCalculate();
   });
   __hmpObserver.observe(__hmpProductsEl, { childList: true });
 
@@ -296,33 +358,31 @@
   window.__hmpRemoveEmpty = removeEmptyProducts;
   window.__hmpCalculate = function() {
     removeEmptyProducts();
-    if (typeof __debouncedCalculate === 'function') __debouncedCalculate();
+    window.__debouncedCalculate();
   };
 
-  // ── calculate debounce 600ms ────────────────────────────────
-  // app.js의 calculate()를 debounce 래핑
-  // 수량/체크박스 빠른 변경 시 마지막 입력 후 600ms 뒤 한 번만 실행
-  var __calcTimer = null;
-  var __origCalculate = null;
-  window.__debouncedCalculate = function() {
-    clearTimeout(__calcTimer);
-    __calcTimer = setTimeout(function() {
-      if (typeof __origCalculate === 'function') __origCalculate();
-    }, 600);
-  };
+  // ── 계산용 input/change 이벤트 선별 차단 ───────────────────
+  // app.js가 등록한 리스너 중 calculate를 직접 호출하는 경우를 막고
+  // debounced 버전만 실행 (productEnabledCb 등 별도 로직은 유지)
+  var CALC_INPUT_SELECTORS = [
+    '.qtyInput', '.nameInput', '.searchInput',
+    '.vendorInput', '.priceInput', '.minInput', '.stockInput',
+    '.couponVendorInput', '.couponAmountInput', '.couponMinInput', '.couponQtyInput'
+  ].join(',');
 
-  function installDebounce() {
-    if (typeof calculate !== 'function') return;
-    if (__origCalculate) return;
-    __origCalculate = calculate;
-    window.calculate = window.__debouncedCalculate;
-  }
-  setTimeout(installDebounce, 0);
-  setTimeout(installDebounce, 200);
+  ['input', 'change'].forEach(function(evtType) {
+    document.getElementById('products').addEventListener(evtType, function(e) {
+      if (e.target.matches(CALC_INPUT_SELECTORS)) {
+        // calculate가 원본으로 복구됐으면 재교체
+        if (typeof calculate === 'function' && calculate !== window.__debouncedCalculate) {
+          __origCalculate = __origCalculate || calculate;
+          window.calculate = window.__debouncedCalculate;
+        }
+      }
+    }, true); // 캡처 단계
+  });
 
-  // ── 자동저장 ───────────────────────────────────────────────
-  // 상품/수량/체크박스/쿠폰 변경 시 자동 저장
-  // 초기화 버튼 클릭 시에만 삭제
+  // ── 저장 (계산과 분리, 1초 debounce) ───────────────────────
   var HMP_STATE_KEY = 'hmp-helper-state-v1';
   var __saveTimer = null;
 
@@ -361,34 +421,35 @@
   function autoSave() {
     clearTimeout(__saveTimer);
     __saveTimer = setTimeout(function() {
-      try {
-        localStorage.setItem(HMP_STATE_KEY, JSON.stringify(readFullState()));
-      } catch(e) { console.warn('[HMP] 자동저장 실패:', e); }
-    }, 1000); // 마지막 변경 후 1초 뒤 저장
+      try { localStorage.setItem(HMP_STATE_KEY, JSON.stringify(readFullState())); }
+      catch(e) { console.warn('[HMP] 자동저장 실패:', e); }
+    }, 1000);
   }
 
-  // 상품 목록 변경 감지 → 자동저장
+  // beforeunload 시 마지막 상태 저장
+  window.addEventListener('beforeunload', function() {
+    try { localStorage.setItem(HMP_STATE_KEY, JSON.stringify(readFullState())); } catch(e) {}
+  });
+
   document.getElementById('products').addEventListener('input',  autoSave);
   document.getElementById('products').addEventListener('change', autoSave);
   document.getElementById('couponRows').addEventListener('input',  autoSave);
   document.getElementById('couponRows').addEventListener('change', autoSave);
 
-  // 초기화 버튼 → localStorage도 삭제
+  // 초기화 버튼
   var __origClearBtn = document.getElementById('clearBtn');
   if (__origClearBtn) {
     __origClearBtn.addEventListener('click', function() {
-      // app.js의 clearBtn 핸들러가 먼저 실행된 뒤 삭제
       setTimeout(function() {
         try { localStorage.removeItem(HMP_STATE_KEY); } catch(e) {}
       }, 100);
     });
   }
 
-  // ── 저장 버튼 (수동 확인용) ─────────────────────────────────
+  // 저장 버튼
   document.getElementById('saveStateBtn').addEventListener('click', function() {
-    try {
-      localStorage.setItem(HMP_STATE_KEY, JSON.stringify(readFullState()));
-    } catch(e) { console.warn('[HMP] 저장 실패:', e); }
+    try { localStorage.setItem(HMP_STATE_KEY, JSON.stringify(readFullState())); }
+    catch(e) { console.warn('[HMP] 저장 실패:', e); }
     var btn = document.getElementById('saveStateBtn');
     var orig = btn.textContent;
     btn.textContent = '✅ 저장됨';
@@ -396,7 +457,7 @@
     setTimeout(function() { btn.textContent = orig; btn.style.color = ''; }, 1500);
   });
 
-  // ── 상품 체크박스 ───────────────────────────────────────────
+  // 상품 체크박스 (productEnabledCb - 별도 로직 유지)
   document.getElementById('products').addEventListener('change', function(e) {
     var cb = e.target;
     if (!cb.classList.contains('productEnabledCb')) return;
