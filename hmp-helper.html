@@ -244,16 +244,14 @@
 </template>
 
 <script>
-  // ── 저장 확정 플래그 방식 ───────────────────────────────────
-  // hmp-helper-state-v1 : 확정 저장 (저장 버튼 눌렀을 때만)
-  // hmp-helper-state-tmp : 임시 저장 (작업 중 자동)
-  // 로드 시: v1이 있으면 복원, 없으면 빈 상태
+  // 저장 플래그 없음 - hmp-helper-state-v1은 항상 유지
 </script>
 <script src="./app.js"></script>
 <script>
-  // ── saveState 가로채기 ──────────────────────────────────────
-  // app.js calculate() → saveState() 흐름을 가로채서
-  // 임시 키(tmp)에만 저장. 확정 저장은 저장 버튼에서만.
+  // ── saveState 가로채기 (app.js 로드 직후) ──────────────────
+  // app.js의 calculate() → saveState(readProducts()...) 흐름에서
+  // readProducts()가 stock=0, enabled=false 업체를 필터링하므로
+  // saveState를 가로채서 DOM 전체 데이터로 저장
   var HMP_KEY_CONFIRMED = 'hmp-helper-state-v1';
   var HMP_KEY_TMP       = 'hmp-helper-state-tmp';
 
@@ -287,9 +285,8 @@
     return { products: products, coupons: coupons, savedAt: savedAt || new Date().toISOString() };
   }
 
-  // app.js saveState → 임시 키에만 저장 (확정 저장 아님)
-  (function() {
-    if (typeof saveState !== 'function') return;
+  // app.js saveState → 임시 키에만 저장
+  if (typeof saveState === 'function') {
     window.saveState = function(_p, _c) {
       try {
         var prev = {};
@@ -297,10 +294,7 @@
         localStorage.setItem(HMP_KEY_TMP, JSON.stringify(readDomState(prev.savedAt)));
       } catch(e) { console.warn('[HMP] saveState 오버라이드 실패:', e); }
     };
-  })();
-
-  // app.js의 restoreState가 HMP_KEY_CONFIRMED(v1)을 읽으므로
-  // 로드 시 확정 저장이 없으면 빈 상태가 됨 → 그대로 OK
+  }
 </script>
 <script src="./calculator.js"></script>
 <script>
@@ -354,9 +348,13 @@
     if (typeof __debouncedCalculate === 'function') __debouncedCalculate();
   };
 
-  // ── calculate debounce 600ms ────────────────────────────────
+  // ── calculate debounce ─────────────────────────────────────
+  // app.js 로드 직후 calculate를 교체하고,
+  // 추가로 #products의 input/change 이벤트를 캡처 단계에서 가로채
+  // app.js 내부 리스너가 calculate()를 직접 호출해도 debounce 적용
   var __calcTimer = null;
   var __origCalculate = null;
+
   window.__debouncedCalculate = function() {
     clearTimeout(__calcTimer);
     __calcTimer = setTimeout(function() {
@@ -370,56 +368,98 @@
     __origCalculate = calculate;
     window.calculate = window.__debouncedCalculate;
   }
+  // app.js 로드 직후 동기 설치
+  installDebounce();
   setTimeout(installDebounce, 0);
-  setTimeout(installDebounce, 200);  // ── 저장 날짜 경고 배너 ─────────────────────────────────────
-  function showStalePriceWarning(savedAt) {
-    var existing = document.getElementById('__hmpStaleBanner');
-    if (existing) existing.remove();
-    if (!savedAt) return;
-    var savedDate = new Date(savedAt);
-    var now = new Date();
-    var diffDays = Math.floor((now - savedDate) / (1000 * 60 * 60 * 24));
-    if (diffDays < 1) return;
+  setTimeout(installDebounce, 100);
 
-    var banner = document.createElement('div');
-    banner.id = '__hmpStaleBanner';
-    var dateStr = savedDate.toLocaleDateString('ko-KR', { month: 'long', day: 'numeric' });
-    banner.style.cssText = 'margin:12px 0 0;padding:10px 14px;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;font-size:12px;color:#92400e;display:flex;align-items:center;justify-content:space-between;gap:8px';
-    banner.innerHTML = '<span>⚠️ <strong>' + dateStr + '</strong> 저장된 가격입니다. ' + diffDays + '일 경과 — HMP몰에서 다시 캡처하면 최신 가격으로 업데이트됩니다.</span>'
-      + '<button onclick="document.getElementById(\'__hmpStaleBanner\').remove()" style="background:none;border:none;cursor:pointer;font-size:14px;color:#92400e;padding:0;height:auto;min-width:0">✕</button>';
-    var sectionTitle = document.querySelector('.sectionTitle');
-    if (sectionTitle) sectionTitle.insertAdjacentElement('afterend', banner);
+  // app.js 내부 이벤트 리스너가 원본 calculate를 직접 호출하는 경우를 막기 위해
+  // #products와 document의 input/change 이벤트를 캡처 단계에서 가로채
+  // → calculate 호출 타이밍을 debounce로 지연
+  var __eventIntercepting = false;
+  function interceptCalcEvents(el) {
+    ['input', 'change'].forEach(function(type) {
+      el.addEventListener(type, function() {
+        // 이벤트 발생 시 현재 calculate가 원본이면 debounce로 교체 (재확인)
+        if (typeof calculate === 'function' && calculate !== window.__debouncedCalculate) {
+          if (!__origCalculate) __origCalculate = calculate;
+          window.calculate = window.__debouncedCalculate;
+        }
+      }, true); // 캡처 단계 - app.js 리스너보다 먼저 실행
+    });
+  }
+  interceptCalcEvents(document.getElementById('products'));
+  interceptCalcEvents(document);
+
+  // ── 자동저장 ───────────────────────────────────────────────
+  // 상품/수량/체크박스/쿠폰 변경 시 자동 저장
+  // 초기화 버튼 클릭 시에만 삭제
+  var HMP_STATE_KEY = 'hmp-helper-state-v1';
+  var __saveTimer = null;
+
+  function readFullState() {
+    var products = [...document.querySelectorAll('#products .product')].map(function(p, i) {
+      return {
+        name:   (p.querySelector('.nameInput')?.value || '').trim() || ('상품' + (i+1)),
+        search: (p.querySelector('.searchInput')?.value || '').trim(),
+        qty:    Math.max(1, Number(p.querySelector('.qtyInput')?.value) || 1),
+        quotes: [...p.querySelectorAll('.quoteRows tr')].map(function(r) {
+          return {
+            vendor:   (r.querySelector('.vendorInput')?.value   || '').trim(),
+            price:    Number(r.querySelector('.priceInput')?.value)   || 0,
+            minOrder: Number(r.querySelector('.minInput')?.value)     || 0,
+            stock:    r.querySelector('.stockInput')?.value === '' ? ''
+                      : (Number(r.querySelector('.stockInput')?.value) || 0),
+            enabled:  r.querySelector('.enabledInput')?.checked ?? true,
+          };
+        }).filter(function(q) { return q.vendor && q.price > 0; }),
+      };
+    }).filter(function(p) { return p.quotes.length > 0; });
+
+    var coupons = [...document.querySelectorAll('#couponRows tr')].map(function(r) {
+      return {
+        vendor:   (r.querySelector('.couponVendorInput')?.value  || '').trim(),
+        amount:   Number(r.querySelector('.couponAmountInput')?.value) || 0,
+        minOrder: Number(r.querySelector('.couponMinInput')?.value)    || 0,
+        qty:      Math.max(1, Number(r.querySelector('.couponQtyInput')?.value) || 1),
+        enabled:  r.querySelector('.couponEnabledInput')?.checked ?? true,
+      };
+    }).filter(function(c) { return c.vendor && c.amount > 0; });
+
+    return { products: products, coupons: coupons };
   }
 
-  // ── 페이지 로드 시 확정 저장 날짜 확인 ────────────────────
-  setTimeout(function() {
-    try {
-      var saved = JSON.parse(localStorage.getItem(HMP_KEY_CONFIRMED) || 'null');
-      if (saved && saved.savedAt) showStalePriceWarning(saved.savedAt);
-    } catch(e) {}
-  }, 800);
+  function autoSave() {
+    clearTimeout(__saveTimer);
+    __saveTimer = setTimeout(function() {
+      try {
+        localStorage.setItem(HMP_STATE_KEY, JSON.stringify(readFullState()));
+      } catch(e) { console.warn('[HMP] 자동저장 실패:', e); }
+    }, 1000); // 마지막 변경 후 1초 뒤 저장
+  }
 
-  // ── 초기화 버튼 → 확정+임시 둘 다 삭제 ───────────────────
+  // 상품 목록 변경 감지 → 자동저장
+  document.getElementById('products').addEventListener('input',  autoSave);
+  document.getElementById('products').addEventListener('change', autoSave);
+  document.getElementById('couponRows').addEventListener('input',  autoSave);
+  document.getElementById('couponRows').addEventListener('change', autoSave);
+
+  // 초기화 버튼 → localStorage도 삭제
   var __origClearBtn = document.getElementById('clearBtn');
   if (__origClearBtn) {
     __origClearBtn.addEventListener('click', function() {
+      // app.js의 clearBtn 핸들러가 먼저 실행된 뒤 삭제
       setTimeout(function() {
-        try {
-          localStorage.removeItem(HMP_KEY_CONFIRMED);
-          localStorage.removeItem(HMP_KEY_TMP);
-          document.getElementById('__hmpStaleBanner')?.remove();
-        } catch(e) {}
+        try { localStorage.removeItem(HMP_STATE_KEY); } catch(e) {}
       }, 100);
     });
   }
 
-  // ── 저장 버튼 → 확정 키에 저장 ────────────────────────────
+  // ── 저장 버튼 (수동 확인용) ─────────────────────────────────
   document.getElementById('saveStateBtn').addEventListener('click', function() {
     try {
-      localStorage.setItem(HMP_KEY_CONFIRMED, JSON.stringify(readDomState(new Date().toISOString())));
-      localStorage.removeItem(HMP_KEY_TMP); // 임시 저장 정리
+      localStorage.setItem(HMP_STATE_KEY, JSON.stringify(readFullState()));
     } catch(e) { console.warn('[HMP] 저장 실패:', e); }
-    document.getElementById('__hmpStaleBanner')?.remove();
     var btn = document.getElementById('saveStateBtn');
     var orig = btn.textContent;
     btn.textContent = '✅ 저장됨';
