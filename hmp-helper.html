@@ -300,6 +300,8 @@
   };
 
   // ── calculate debounce 600ms ────────────────────────────────
+  // app.js의 calculate()를 debounce 래핑
+  // 수량/체크박스 빠른 변경 시 마지막 입력 후 600ms 뒤 한 번만 실행
   var __calcTimer = null;
   var __origCalculate = null;
   window.__debouncedCalculate = function() {
@@ -315,18 +317,8 @@
     __origCalculate = calculate;
     window.calculate = window.__debouncedCalculate;
   }
-  installDebounce(); // 동기 즉시 실행
   setTimeout(installDebounce, 0);
   setTimeout(installDebounce, 200);
-
-  // app.js 내부 리스너가 원본 calculate를 직접 호출하는 경우 대비
-  // 캡처 단계에서 calculate가 원본으로 복구됐으면 재교체
-  document.getElementById('products').addEventListener('input', function() {
-    if (typeof calculate === 'function' && calculate !== window.__debouncedCalculate) {
-      if (!__origCalculate) __origCalculate = calculate;
-      window.calculate = window.__debouncedCalculate;
-    }
-  }, true);
 
   // ── 자동저장 ───────────────────────────────────────────────
   // 상품/수량/체크박스/쿠폰 변경 시 자동 저장
